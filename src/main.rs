@@ -15,8 +15,12 @@ use spa::param::format_utils;
 use spa::pod::Pod;
 use std::convert::TryInto;
 use std::mem;
+use std::sync::Arc;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+use env_logger;
+use log::info;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
@@ -28,9 +32,26 @@ struct UserData {
 struct Opt {
     #[clap(short, long, help = "The target object id to connect to")]
     target: Option<String>,
+
+    #[clap(
+        short,
+        long,
+        help = "The whisper model to use for inference",
+        default_value = "models/ggml-base.en.bin"
+    )]
+    model: String,
 }
 
 pub fn main() -> Result<(), pw::Error> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .init();
+
+    info!("Starting audio capture application");
+
+    // Log that we're using whisper-rs with log_backend feature enabled
+    info!("Using whisper-rs with log_backend feature enabled");
+
     pw::init();
 
     let mainloop = pw::main_loop::MainLoop::new(None)?;
@@ -77,11 +98,29 @@ pub fn main() -> Result<(), pw::Error> {
     // uncomment if you want to capture from the sink monitor ports
     // props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
+    let model_path = Opt::parse().model;
+    let context_params = WhisperContextParameters::default();
+    let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
+    inference_params.set_n_threads(1);
+    inference_params.set_translate(true);
+    inference_params.set_language(Some("en"));
+    inference_params.set_print_special(true);
+    inference_params.set_print_progress(false);
+    inference_params.set_print_realtime(false);
+    inference_params.set_print_timestamps(false);
+    inference_params.set_token_timestamps(true);
+
+    let ctx = Arc::new(
+        WhisperContext::new_with_params(&model_path, context_params).expect("failed to load model"),
+    );
+    // Create a state
+    let mut state = ctx.create_state().expect("failed to create key");
+
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
 
     let _listener = stream
         .add_local_listener_with_user_data(data)
-        .param_changed(|_, user_data, id, param| {
+        .param_changed(move |_, user_data, id, param| {
             // NULL means to clear the format
             let Some(param) = param else {
                 return;
@@ -112,7 +151,7 @@ pub fn main() -> Result<(), pw::Error> {
                 user_data.format.channels()
             );
         })
-        .process(|stream, user_data| match stream.dequeue_buffer() {
+        .process(move |stream, user_data| match stream.dequeue_buffer() {
             None => println!("out of buffers"),
             Some(mut buffer) => {
                 let datas = buffer.datas_mut();
@@ -124,7 +163,19 @@ pub fn main() -> Result<(), pw::Error> {
                 let n_channels = user_data.format.channels();
                 let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
 
-                if let Some(samples) = data.data() {
+                if let Some(samples_bytes) = data.data() {
+                    // Since we requested F32LE format, we should directly interpret as f32
+                    let float_samples = unsafe {
+                        std::slice::from_raw_parts(
+                            samples_bytes.as_ptr() as *const f32,
+                            samples_bytes.len() / std::mem::size_of::<f32>(),
+                        )
+                    };
+
+                    let mono_samples = whisper_rs::convert_stereo_to_mono_audio(float_samples)
+                        .expect("Failed to convert samples to mono");
+
+                    /*
                     if user_data.cursor_move {
                         print!("\x1B[{}A", n_channels + 1);
                     }
@@ -134,7 +185,7 @@ pub fn main() -> Result<(), pw::Error> {
                         for n in (c..n_samples).step_by(n_channels as usize) {
                             let start = n as usize * mem::size_of::<f32>();
                             let end = start + mem::size_of::<f32>();
-                            let chan = &samples[start..end];
+                            let chan = &samples_bytes[start..end];
                             let f = f32::from_le_bytes(chan.try_into().unwrap());
                             max = max.max(f.abs());
                         }
@@ -152,6 +203,54 @@ pub fn main() -> Result<(), pw::Error> {
                         );
                     }
                     user_data.cursor_move = true;
+                    */
+
+                    // now we can run the model
+                    let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+                    state
+                        .full(inference_params, &mono_samples)
+                        .expect("failed to run model");
+                    let num_segments = state
+                        .full_n_segments()
+                        .expect("failed to get number of segments");
+                    for i in 0..num_segments {
+                        let segment = state
+                            .full_get_segment_text(i)
+                            .expect("failed to get segment");
+                        let start_timestamp = state
+                            .full_get_segment_t0(i)
+                            .expect("failed to get start timestamp");
+                        let end_timestamp = state
+                            .full_get_segment_t1(i)
+                            .expect("failed to get end timestamp");
+
+                        println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
+
+                        let first_token_dtw_ts = if let Ok(token_count) = state.full_n_tokens(i) {
+                            if token_count > 0 {
+                                if let Ok(token_data) = state.full_get_token_data(i, 0) {
+                                    token_data.t_dtw
+                                } else {
+                                    -1i64
+                                }
+                            } else {
+                                -1i64
+                            }
+                        } else {
+                            -1i64
+                        };
+                        // Print the segment to stdout.
+                        println!(
+                            "[{} - {} ({})]: {}",
+                            start_timestamp, end_timestamp, first_token_dtw_ts, segment
+                        );
+
+                        // Format the segment information as a string.
+                        let line =
+                            format!("[{} - {}]: {}\n", start_timestamp, end_timestamp, segment);
+
+                        log::info!("{}", line);
+                    }
                 }
             }
         })

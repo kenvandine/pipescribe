@@ -6,11 +6,13 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 crossbeam-channel = "0.5.15"
+env_logger = "0.11.8"
 libspa-sys = "0.8.0"
+log = "0.4.27"
 pipewire = "0.8.0"
 pipewire-sys = "0.8.0"
 spa = "0.5.1"
-whisper-rs = {version = "0.14.2", features = ["cuda", "openblas", "log_backend"]}
+whisper-rs = {version = "0.14.2", features = ["cuda", "log_backend"]}
 
 [features]
 v0_3_44 = []
