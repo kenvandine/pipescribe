@@ -43,6 +43,8 @@ struct Opt {
 }
 
 pub fn main() -> Result<(), pw::Error> {
+    whisper_rs::install_logging_hooks();
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -172,38 +174,34 @@ pub fn main() -> Result<(), pw::Error> {
                         )
                     };
 
-                    let mono_samples = whisper_rs::convert_stereo_to_mono_audio(float_samples)
-                        .expect("Failed to convert samples to mono");
+                    let mono_samples = if n_channels == 2 {
+                        whisper_rs::convert_stereo_to_mono_audio(float_samples)
+                            .expect("Failed to convert samples to mono")
+                    } else {
+                        float_samples.to_vec()
+                    };
 
-                    /*
                     if user_data.cursor_move {
                         print!("\x1B[{}A", n_channels + 1);
                     }
                     println!("captured {} samples", n_samples / n_channels);
-                    for c in 0..n_channels {
-                        let mut max: f32 = 0.0;
-                        for n in (c..n_samples).step_by(n_channels as usize) {
-                            let start = n as usize * mem::size_of::<f32>();
-                            let end = start + mem::size_of::<f32>();
-                            let chan = &samples_bytes[start..end];
-                            let f = f32::from_le_bytes(chan.try_into().unwrap());
-                            max = max.max(f.abs());
-                        }
 
-                        let peak = ((max * 30.0) as usize).clamp(0, 39);
-
-                        println!(
-                            "channel {}: |{:>w1$}{:w2$}| peak:{}",
-                            c,
-                            "*",
-                            "",
-                            max,
-                            w1 = peak + 1,
-                            w2 = 40 - peak
-                        );
+                    let mut max: f32 = 0.0;
+                    for &sample in mono_samples.iter() {
+                        max = max.max(sample.abs());
                     }
+
+                    // Display the peak meter
+                    let peak = ((max * 30.0) as usize).clamp(0, 39);
+                    println!(
+                        "mono: |{:>w1$}{:w2$}| peak:{}",
+                        "*",
+                        "",
+                        max,
+                        w1 = peak + 1,
+                        w2 = 40 - peak
+                    );
                     user_data.cursor_move = true;
-                    */
 
                     // now we can run the model
                     let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
