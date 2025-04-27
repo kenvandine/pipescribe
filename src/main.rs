@@ -8,6 +8,10 @@
 use clap::Parser;
 use pipewire as pw;
 use pw::{properties::properties, spa};
+use ringbuf::storage::Heap;
+use ringbuf::traits::Split;
+use ringbuf::wrap::caching::Caching;
+use ringbuf::{SharedRb, consumer::Consumer, producer::Producer, traits::RingBuffer};
 #[cfg(feature = "v0_3_44")]
 use spa::WritableDict;
 use spa::param::format::{MediaSubtype, MediaType};
@@ -25,6 +29,7 @@ use log::info;
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
     cursor_move: bool,
+    ring_producer: Caching<Arc<SharedRb<Heap<f32>>>, true, false>,
 }
 
 #[derive(Parser)]
@@ -40,6 +45,14 @@ struct Opt {
         default_value = "models/ggml-base.en.bin"
     )]
     model: String,
+
+    #[clap(
+        short,
+        long,
+        help = "Number of seconds to keep in the audio buffer",
+        default_value = "5"
+    )]
+    buffer_seconds: u32,
 }
 
 pub fn main() -> Result<(), pw::Error> {
@@ -60,22 +73,22 @@ pub fn main() -> Result<(), pw::Error> {
     let context = pw::context::Context::new(&mainloop)?;
     let core = context.connect(None)?;
 
+    let opt = Opt::parse();
+
+    // Calculate the ring buffer size based on the desired seconds
+    // Assuming 16000Hz is the inference rate for Whisper
+    let inference_rate = 16000;
+    let ring_buffer_size = (inference_rate * opt.buffer_seconds) as usize;
+    let ring_buffer = SharedRb::new(ring_buffer_size);
+
+    let (mut producer, mut consumer) = ring_buffer.split();
+
     let data = UserData {
         format: Default::default(),
         cursor_move: false,
+        ring_producer: producer,
     };
 
-    /* Create a simple stream, the simple stream manages the core and remote
-     * objects for you if you don't need to deal with them.
-     *
-     * If you plan to autoconnect your stream, you need to provide at least
-     * media, category and role properties.
-     *
-     * Pass your events and a user_data pointer as the last arguments. This
-     * will inform you about the stream state. The most important event
-     * you need to listen to is the process event where you need to produce
-     * the data.
-     */
     #[cfg(not(feature = "v0_3_44"))]
     let props = properties! {
         *pw::keys::MEDIA_TYPE => "Audio",
@@ -84,8 +97,6 @@ pub fn main() -> Result<(), pw::Error> {
     };
     #[cfg(feature = "v0_3_44")]
     let props = {
-        let opt = Opt::parse();
-
         let mut props = properties! {
             *pw::keys::MEDIA_TYPE => "Audio",
             *pw::keys::MEDIA_CATEGORY => "Capture",
@@ -100,7 +111,7 @@ pub fn main() -> Result<(), pw::Error> {
     // uncomment if you want to capture from the sink monitor ports
     // props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
-    let model_path = Opt::parse().model;
+    let model_path = opt.model;
     let context_params = WhisperContextParameters::default();
     let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
     inference_params.set_n_threads(1);
@@ -117,6 +128,10 @@ pub fn main() -> Result<(), pw::Error> {
     );
     // Create a state
     let mut state = ctx.create_state().expect("failed to create key");
+
+    // Create a ring_consumer clone that can be moved into the closure
+    let ring_consumer = Arc::new(std::sync::Mutex::new(consumer));
+    let ring_consumer_clone = ring_consumer.clone();
 
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
 
@@ -181,6 +196,11 @@ pub fn main() -> Result<(), pw::Error> {
                         float_samples.to_vec()
                     };
 
+                    // Add the new samples to the ring buffer
+                    for &sample in mono_samples.iter() {
+                        let _ = user_data.ring_producer.try_push(sample);
+                    }
+
                     if user_data.cursor_move {
                         print!("\x1B[{}A", n_channels + 1);
                     }
@@ -203,51 +223,77 @@ pub fn main() -> Result<(), pw::Error> {
                     );
                     user_data.cursor_move = true;
 
-                    // now we can run the model
-                    let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-                    state
-                        .full(inference_params, &mono_samples)
-                        .expect("failed to run model");
-                    let num_segments = state
-                        .full_n_segments()
-                        .expect("failed to get number of segments");
-                    for i in 0..num_segments {
-                        let segment = state
-                            .full_get_segment_text(i)
-                            .expect("failed to get segment");
-                        let start_timestamp = state
-                            .full_get_segment_t0(i)
-                            .expect("failed to get start timestamp");
-                        let end_timestamp = state
-                            .full_get_segment_t1(i)
-                            .expect("failed to get end timestamp");
+                    // Get all available samples from the ring buffer for inference
+                    let mut ring_consumer_guard = ring_consumer_clone.lock().unwrap();
 
-                        println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
+                    // Read all available samples from the ring buffer
+                    while let Some(sample) = (*ring_consumer_guard).try_pop() {
+                        // Collect all available samples from the ring buffer
+                        let mut buffer_samples = Vec::new();
+                        while let Some(sample) = (*ring_consumer_guard).try_pop() {
+                            buffer_samples.push(sample);
+                        }
 
-                        let first_token_dtw_ts = if let Ok(token_count) = state.full_n_tokens(i) {
-                            if token_count > 0 {
-                                if let Ok(token_data) = state.full_get_token_data(i, 0) {
-                                    token_data.t_dtw
+                        // Only run inference if we have samples
+                        if !buffer_samples.is_empty() {
+                            println!(
+                                "Running inference on {} accumulated samples",
+                                buffer_samples.len()
+                            );
+
+                            // now we can run the model
+                            let inference_params =
+                                FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+                            state
+                                .full(inference_params, &buffer_samples)
+                                .expect("failed to run model");
+
+                            let num_segments = state
+                                .full_n_segments()
+                                .expect("failed to get number of segments");
+                            for i in 0..num_segments {
+                                let segment = state
+                                    .full_get_segment_text(i)
+                                    .expect("failed to get segment");
+                                let start_timestamp = state
+                                    .full_get_segment_t0(i)
+                                    .expect("failed to get start timestamp");
+                                let end_timestamp = state
+                                    .full_get_segment_t1(i)
+                                    .expect("failed to get end timestamp");
+
+                                println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
+
+                                let first_token_dtw_ts = if let Ok(token_count) =
+                                    state.full_n_tokens(i)
+                                {
+                                    if token_count > 0 {
+                                        if let Ok(token_data) = state.full_get_token_data(i, 0) {
+                                            token_data.t_dtw
+                                        } else {
+                                            -1i64
+                                        }
+                                    } else {
+                                        -1i64
+                                    }
                                 } else {
                                     -1i64
-                                }
-                            } else {
-                                -1i64
+                                };
+                                // Print the segment to stdout.
+                                println!(
+                                    "[{} - {} ({})]: {}",
+                                    start_timestamp, end_timestamp, first_token_dtw_ts, segment
+                                );
+
+                                // Format the segment information as a string.
+                                let line = format!(
+                                    "[{} - {}]: {}\n",
+                                    start_timestamp, end_timestamp, segment
+                                );
+
+                                log::info!("{}", line);
                             }
-                        } else {
-                            -1i64
-                        };
-                        // Print the segment to stdout.
-                        println!(
-                            "[{} - {} ({})]: {}",
-                            start_timestamp, end_timestamp, first_token_dtw_ts, segment
-                        );
-
-                        // Format the segment information as a string.
-                        let line =
-                            format!("[{} - {}]: {}\n", start_timestamp, end_timestamp, segment);
-
-                        log::info!("{}", line);
+                        }
                     }
                 }
             }
