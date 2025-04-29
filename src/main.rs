@@ -467,3 +467,46 @@ fn write_wav_file(path: &Path, samples: &[f32], sample_rate: u32) -> Result<(), 
     writer.finalize()?;
     Ok(())
 }
+
+fn find_node_by_name(
+    context: &pw::context::Context,
+    name: &str,
+) -> Result<Option<String>, pw::Error> {
+    let core = context.connect(None)?;
+    let registry = core.get_registry()?;
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    // Create owned version of name that can be moved into the closure
+    let name_owned = name.to_string();
+
+    // Add a registry listener to find the node
+    let _listener = registry
+        .add_listener_local()
+        .global(move |obj| {
+            // Check if this object is a node
+            if obj.type_ == pw::types::ObjectType::Node {
+                // Get properties
+                if let Some(props) = obj.props {
+                    // Check node name
+                    if let Some(node_name) = props.get("node.name") {
+                        if node_name == name_owned {
+                            let _ = sender.send(Some(obj.id.to_string()));
+                        }
+                    }
+                }
+            }
+        })
+        .register(); // No ? operator here
+
+    // Wait for a short time for a response
+    let timeout = std::time::Duration::from_secs(2);
+    match receiver.recv_timeout(timeout) {
+        Ok(Some(id)) => {
+            println!("Found node with ID: {}", id);
+            Ok(Some(id))
+        }
+        Ok(None) => Ok(None),
+        Err(_) => Ok(None), // No response received before timeout
+    }
+}
