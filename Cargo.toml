@@ -1,5 +1,5 @@
 [package]
-name = "prompter"
+name = "scribe"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,6 +7,7 @@ edition = "2024"
 clap = { version = "4.5.37", features = ["derive"] }
 crossbeam-channel = "0.5.15"
 env_logger = "0.11.8"
+hound = "3.5.1"
 libspa-sys = "0.8.0"
 log = "0.4.27"
 pipewire = "0.8.0"

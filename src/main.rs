@@ -9,9 +9,9 @@ use clap::Parser;
 use pipewire as pw;
 use pw::{properties::properties, spa};
 use ringbuf::storage::Heap;
-use ringbuf::traits::Split;
+use ringbuf::traits::{Observer, Split};
 use ringbuf::wrap::caching::Caching;
-use ringbuf::{SharedRb, consumer::Consumer, producer::Producer, traits::RingBuffer};
+use ringbuf::{SharedRb, consumer::Consumer, producer::Producer};
 #[cfg(feature = "v0_3_44")]
 use spa::WritableDict;
 use spa::param::format::{MediaSubtype, MediaType};
@@ -20,11 +20,19 @@ use spa::pod::Pod;
 use std::convert::TryInto;
 use std::mem;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use env_logger;
-use log::info;
+use log::{error, info, warn};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+// Add hound crate for WAV file handling
+use hound;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
@@ -53,6 +61,13 @@ struct Opt {
         default_value = "5"
     )]
     buffer_seconds: u32,
+
+    #[clap(
+        short = 'o',
+        long = "output-dir",
+        help = "Directory to save processed audio as WAV files"
+    )]
+    output_dir: Option<PathBuf>,
 }
 
 pub fn main() -> Result<(), pw::Error> {
@@ -75,13 +90,20 @@ pub fn main() -> Result<(), pw::Error> {
 
     let opt = Opt::parse();
 
+    // Create output directory if specified and doesn't exist
+    if let Some(output_dir) = &opt.output_dir {
+        if !output_dir.exists() {
+            fs::create_dir_all(output_dir).expect("Failed to create output directory");
+        }
+    }
+
     // Calculate the ring buffer size based on the desired seconds
     // Assuming 16000Hz is the inference rate for Whisper
     let inference_rate = 16000;
     let ring_buffer_size = (inference_rate * opt.buffer_seconds) as usize;
     let ring_buffer = SharedRb::new(ring_buffer_size);
 
-    let (mut producer, mut consumer) = ring_buffer.split();
+    let (producer, consumer) = ring_buffer.split();
 
     let data = UserData {
         format: Default::default(),
@@ -114,7 +136,7 @@ pub fn main() -> Result<(), pw::Error> {
     let model_path = opt.model;
     let context_params = WhisperContextParameters::default();
     let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
-    inference_params.set_n_threads(1);
+    inference_params.set_n_threads(10);
     inference_params.set_translate(true);
     inference_params.set_language(Some("en"));
     inference_params.set_print_special(true);
@@ -126,12 +148,143 @@ pub fn main() -> Result<(), pw::Error> {
     let ctx = Arc::new(
         WhisperContext::new_with_params(&model_path, context_params).expect("failed to load model"),
     );
-    // Create a state
-    let mut state = ctx.create_state().expect("failed to create key");
 
-    // Create a ring_consumer clone that can be moved into the closure
-    let ring_consumer = Arc::new(std::sync::Mutex::new(consumer));
-    let ring_consumer_clone = ring_consumer.clone();
+    // Create a state in the main thread that will be moved to the processing thread
+    let state = ctx.create_state().expect("failed to create state");
+
+    // Setup thread termination flag
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = running.clone();
+
+    // Set up a shared counter for WAV file naming
+    let file_counter = Arc::new(Mutex::new(0));
+
+    // Pass output directory and file counter to the processing thread
+    let output_dir = opt.output_dir.clone();
+    let file_counter_clone = file_counter.clone();
+
+    // Create processing thread that consumes from the ring buffer
+    let processing_thread = thread::spawn(move || {
+        let mut state = state;
+        let mut consumer = consumer;
+
+        while running_clone.load(Ordering::SeqCst) {
+            let available_samples = consumer.occupied_len();
+            // info!("Available samples: {}", available_samples);
+
+            // Only process if we have a meaningful number of samples
+            if available_samples >= ring_buffer_size as usize {
+                // At least 0.25 seconds
+                // Define how many samples to process at once
+                let batch_size = usize::min(available_samples, inference_rate as usize); // Process up to 1 second of audio
+                let mut buffer_samples = Vec::with_capacity(batch_size);
+
+                // Collect the samples
+                for _ in 0..available_samples {
+                    if let Some(sample) = consumer.try_pop() {
+                        buffer_samples.push(sample);
+                    } else {
+                        error!("Failed to pop sample from ring buffer");
+                        break; // Should not happen, but just in case
+                    }
+                }
+
+                println!(
+                    "Running inference on {} accumulated samples",
+                    buffer_samples.len()
+                );
+
+                // Save audio to WAV file if output directory is specified
+                if let Some(output_dir) = &output_dir {
+                    // Get next file number
+                    let file_num = {
+                        let mut counter = file_counter_clone.lock().unwrap();
+                        let num = *counter;
+                        *counter += 1;
+                        num
+                    };
+
+                    // Create WAV file path
+                    let wav_path = output_dir.join(format!("audio_{:04}.wav", file_num));
+
+                    // Write WAV file
+                    match write_wav_file(&wav_path, &buffer_samples, 16000) {
+                        Ok(_) => info!("Saved audio to {}", wav_path.display()),
+                        Err(e) => eprintln!("Failed to save WAV file: {}", e),
+                    }
+                }
+
+                // Run the model
+                let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+                if let Err(e) = state.full(inference_params, &buffer_samples) {
+                    eprintln!("Failed to run model: {}", e);
+                    continue;
+                }
+
+                let num_segments = match state.full_n_segments() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("Failed to get number of segments: {}", e);
+                        continue;
+                    }
+                };
+
+                for i in 0..num_segments {
+                    let segment = match state.full_get_segment_text(i) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    let start_timestamp = match state.full_get_segment_t0(i) {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+
+                    let end_timestamp = match state.full_get_segment_t1(i) {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+
+                    println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
+
+                    let first_token_dtw_ts = if let Ok(token_count) = state.full_n_tokens(i) {
+                        if token_count > 0 {
+                            if let Ok(token_data) = state.full_get_token_data(i, 0) {
+                                token_data.t_dtw
+                            } else {
+                                -1i64
+                            }
+                        } else {
+                            -1i64
+                        }
+                    } else {
+                        -1i64
+                    };
+
+                    // Print the segment to stdout.
+                    log::info!(
+                        "[{} - {} ({})]: {}",
+                        start_timestamp,
+                        end_timestamp,
+                        first_token_dtw_ts,
+                        segment
+                    );
+
+                    // Format the segment information as a string.
+                    let line = format!("[{} - {}]: {}\n", start_timestamp, end_timestamp, segment);
+
+                    log::info!("{}", line);
+                }
+            } else {
+                // Sleep longer when we don't have enough samples
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+
+            // Short sleep between processing batches
+            // thread::sleep(Duration::from_millis(10));
+        }
+    });
 
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
 
@@ -162,11 +315,22 @@ pub fn main() -> Result<(), pw::Error> {
                 .parse(param)
                 .expect("Failed to parse param changed to AudioInfoRaw");
 
-            println!(
-                "capturing rate:{} channels:{}",
-                user_data.format.rate(),
-                user_data.format.channels()
-            );
+            // Access the audio format details:
+            // 1. Get the sample rate from the format
+            let sample_rate = user_data.format.rate();
+
+            // 2. Get the number of channels
+            let channels = user_data.format.channels();
+
+            // 3. Get the audio format (F32LE, etc.)
+            let format = user_data.format.format();
+
+            info!("Audio format details:");
+            info!("  - Sample rate: {} Hz", sample_rate);
+            info!("  - Channels: {}", channels);
+            info!("  - Format: {:?}", format);
+
+            println!("capturing rate:{} channels:{}", sample_rate, channels);
         })
         .process(move |stream, user_data| match stream.dequeue_buffer() {
             None => println!("out of buffers"),
@@ -178,15 +342,24 @@ pub fn main() -> Result<(), pw::Error> {
 
                 let data = &mut datas[0];
                 let n_channels = user_data.format.channels();
-                let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
+                let chunk = data.chunk();
+                let n_samples = chunk.size() / (mem::size_of::<f32>() as u32);
+
+                // Extract all information from chunk before borrowing data mutably
+                let start_offset = chunk.offset() as usize;
+                let data_size = chunk.size() as usize;
+                let stride = chunk.stride() as usize;
 
                 if let Some(samples_bytes) = data.data() {
-                    // Since we requested F32LE format, we should directly interpret as f32
-                    let float_samples = unsafe {
-                        std::slice::from_raw_parts(
-                            samples_bytes.as_ptr() as *const f32,
-                            samples_bytes.len() / std::mem::size_of::<f32>(),
-                        )
+                    // Assume contiguous data (stride equals sample size, since format is F32LE)
+                    debug_assert!(stride == std::mem::size_of::<f32>() || stride == 0);
+
+                    let float_samples = {
+                        unsafe {
+                            let start_ptr = samples_bytes.as_ptr().add(start_offset) as *const f32;
+                            let n_samples = data_size / std::mem::size_of::<f32>();
+                            std::slice::from_raw_parts(start_ptr, n_samples)
+                        }
                     };
 
                     let mono_samples = if n_channels == 2 {
@@ -204,7 +377,7 @@ pub fn main() -> Result<(), pw::Error> {
                     if user_data.cursor_move {
                         print!("\x1B[{}A", n_channels + 1);
                     }
-                    println!("captured {} samples", n_samples / n_channels);
+                    // info!("captured {} samples", n_samples / n_channels);
 
                     let mut max: f32 = 0.0;
                     for &sample in mono_samples.iter() {
@@ -212,6 +385,7 @@ pub fn main() -> Result<(), pw::Error> {
                     }
 
                     // Display the peak meter
+                    /*
                     let peak = ((max * 30.0) as usize).clamp(0, 39);
                     println!(
                         "mono: |{:>w1$}{:w2$}| peak:{}",
@@ -222,79 +396,7 @@ pub fn main() -> Result<(), pw::Error> {
                         w2 = 40 - peak
                     );
                     user_data.cursor_move = true;
-
-                    // Get all available samples from the ring buffer for inference
-                    let mut ring_consumer_guard = ring_consumer_clone.lock().unwrap();
-
-                    // Read all available samples from the ring buffer
-                    while let Some(sample) = (*ring_consumer_guard).try_pop() {
-                        // Collect all available samples from the ring buffer
-                        let mut buffer_samples = Vec::new();
-                        while let Some(sample) = (*ring_consumer_guard).try_pop() {
-                            buffer_samples.push(sample);
-                        }
-
-                        // Only run inference if we have samples
-                        if !buffer_samples.is_empty() {
-                            println!(
-                                "Running inference on {} accumulated samples",
-                                buffer_samples.len()
-                            );
-
-                            // now we can run the model
-                            let inference_params =
-                                FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-                            state
-                                .full(inference_params, &buffer_samples)
-                                .expect("failed to run model");
-
-                            let num_segments = state
-                                .full_n_segments()
-                                .expect("failed to get number of segments");
-                            for i in 0..num_segments {
-                                let segment = state
-                                    .full_get_segment_text(i)
-                                    .expect("failed to get segment");
-                                let start_timestamp = state
-                                    .full_get_segment_t0(i)
-                                    .expect("failed to get start timestamp");
-                                let end_timestamp = state
-                                    .full_get_segment_t1(i)
-                                    .expect("failed to get end timestamp");
-
-                                println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
-
-                                let first_token_dtw_ts = if let Ok(token_count) =
-                                    state.full_n_tokens(i)
-                                {
-                                    if token_count > 0 {
-                                        if let Ok(token_data) = state.full_get_token_data(i, 0) {
-                                            token_data.t_dtw
-                                        } else {
-                                            -1i64
-                                        }
-                                    } else {
-                                        -1i64
-                                    }
-                                } else {
-                                    -1i64
-                                };
-                                // Print the segment to stdout.
-                                println!(
-                                    "[{} - {} ({})]: {}",
-                                    start_timestamp, end_timestamp, first_token_dtw_ts, segment
-                                );
-
-                                // Format the segment information as a string.
-                                let line = format!(
-                                    "[{} - {}]: {}\n",
-                                    start_timestamp, end_timestamp, segment
-                                );
-
-                                log::info!("{}", line);
-                            }
-                        }
-                    }
+                    */
                 }
             }
         })
@@ -306,6 +408,9 @@ pub fn main() -> Result<(), pw::Error> {
      * rate and channels. */
     let mut audio_info = spa::param::audio::AudioInfoRaw::new();
     audio_info.set_format(spa::param::audio::AudioFormat::F32LE);
+    audio_info.set_rate(16000);
+    audio_info.set_channels(1);
+
     let obj = pw::spa::pod::Object {
         type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
         id: pw::spa::param::ParamType::EnumFormat.as_raw(),
@@ -335,5 +440,30 @@ pub fn main() -> Result<(), pw::Error> {
     // and wait while we let things run
     mainloop.run();
 
+    // Signal the processing thread to stop and wait for it
+    running.store(false, Ordering::SeqCst);
+    if let Err(e) = processing_thread.join() {
+        eprintln!("Error joining processing thread: {:?}", e);
+    }
+
+    Ok(())
+}
+
+/// Write audio samples to a WAV file
+fn write_wav_file(path: &Path, samples: &[f32], sample_rate: u32) -> Result<(), hound::Error> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+
+    let mut writer = hound::WavWriter::create(path, spec)?;
+
+    for &sample in samples {
+        writer.write_sample(sample)?;
+    }
+
+    writer.finalize()?;
     Ok(())
 }

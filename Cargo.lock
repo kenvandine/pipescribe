@@ -421,6 +421,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "indexmap"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -660,22 +666,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prompter"
-version = "0.1.0"
-dependencies = [
- "clap",
- "crossbeam-channel",
- "env_logger",
- "libspa-sys",
- "log",
- "pipewire",
- "pipewire-sys",
- "ringbuf",
- "spa",
- "whisper-rs",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -735,6 +725,23 @@ name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+
+[[package]]
+name = "scribe"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "crossbeam-channel",
+ "env_logger",
+ "hound",
+ "libspa-sys",
+ "log",
+ "pipewire",
+ "pipewire-sys",
+ "ringbuf",
+ "spa",
+ "whisper-rs",
+]
 
 [[package]]
 name = "serde"
