@@ -8,6 +8,7 @@
 use clap::Parser;
 use pipewire as pw;
 use pw::{properties::properties, spa};
+use regex::Regex;
 use ringbuf::storage::Heap;
 use ringbuf::traits::{Observer, Split};
 use ringbuf::wrap::caching::Caching;
@@ -17,17 +18,17 @@ use spa::WritableDict;
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
-use std::convert::TryInto;
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use env_logger;
-use log::{error, info, warn};
+use log::{error, info};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -84,11 +85,20 @@ pub fn main() -> Result<(), pw::Error> {
 
     pw::init();
 
+    let opt = Opt::parse();
+    // Try to find PipeWire IDs matching the target pattern
+    let pattern_vec = vec![opt.target.clone().unwrap_or_default()];
+    let target_ids = match find_pipewire_ids_by_pattern(pattern_vec) {
+        None => {
+            eprintln!("Error: No matching PipeWire sources found");
+            std::process::exit(1)
+        }
+        Some(ids) => ids,
+    };
+
     let mainloop = pw::main_loop::MainLoop::new(None)?;
     let context = pw::context::Context::new(&mainloop)?;
     let core = context.connect(None)?;
-
-    let opt = Opt::parse();
 
     // Create output directory if specified and doesn't exist
     if let Some(output_dir) = &opt.output_dir {
@@ -426,11 +436,12 @@ pub fn main() -> Result<(), pw::Error> {
 
     let mut params = [Pod::from_bytes(&values).unwrap()];
 
+    info!("Connecting to target ID: {:?}", target_ids[0]);
     /* Now connect this stream. We ask that our process function is
      * called in a realtime thread. */
     stream.connect(
         spa::utils::Direction::Input,
-        opt.target.as_ref().and_then(|s| s.parse::<u32>().ok()), // Convert target string to u32 ID if provided
+        Some(target_ids[0]), // Convert target string to u32 ID if provided
         pw::stream::StreamFlags::AUTOCONNECT
             | pw::stream::StreamFlags::MAP_BUFFERS
             | pw::stream::StreamFlags::RT_PROCESS,
@@ -468,45 +479,111 @@ fn write_wav_file(path: &Path, samples: &[f32], sample_rate: u32) -> Result<(), 
     Ok(())
 }
 
-fn find_node_by_name(
-    context: &pw::context::Context,
-    name: &str,
-) -> Result<Option<String>, pw::Error> {
-    let core = context.connect(None)?;
-    let registry = core.get_registry()?;
+pub fn find_pipewire_ids_by_pattern(patterns: Vec<String>) -> Option<Vec<u32>> {
+    let mut matching_ids = Vec::new();
 
-    let (sender, receiver) = std::sync::mpsc::channel();
+    // Initialize PipeWire
+    let mainloop = pw::main_loop::MainLoop::new(None).expect("failed to create mainloop");
+    let context = pw::context::Context::new(&mainloop).expect("failed to create context");
+    let core = context.connect(None).expect("failed to connect");
+    let registry = core.get_registry().expect("failed to get registry");
 
-    // Create owned version of name that can be moved into the closure
-    let name_owned = name.to_string();
+    // Compile regexes once
+    let regexes: Vec<Regex> = patterns
+        .iter()
+        .filter_map(|p| {
+            if p.is_empty() {
+                return None;
+            }
+            match Regex::new(p) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    error!("Invalid regex '{}': {}", p, e);
+                    None
+                }
+            }
+        })
+        .collect();
 
-    // Add a registry listener to find the node
+    // If no valid patterns, return early
+    if regexes.is_empty() {
+        info!("No valid patterns to search for");
+        return None;
+    }
+
+    // Set up a channel to communicate IDs from the registry callback
+    let (tx, rx) = mpsc::channel();
+    let tx_clone = tx.clone();
+
+    // Register a listener for registry objects
     let _listener = registry
         .add_listener_local()
-        .global(move |obj| {
-            // Check if this object is a node
-            if obj.type_ == pw::types::ObjectType::Node {
-                // Get properties
-                if let Some(props) = obj.props {
-                    // Check node name
-                    if let Some(node_name) = props.get("node.name") {
-                        if node_name == name_owned {
-                            let _ = sender.send(Some(obj.id.to_string()));
+        .global(move |global| {
+            if let Some(props) = global.props.as_ref() {
+                // Check if port.name exists and matches any pattern
+                if let Some(port_name) = props.get("object.path") {
+                    // Only proceed if port.direction is "out"
+                    if let Some(port_direction) = props.get("port.direction") {
+                        if port_direction == "out" {
+                            for regex in &regexes {
+                                if regex.is_match(port_name) {
+                                    info!(
+                                        "Checking port.name: {} for global ID: {}",
+                                        port_name, global.id
+                                    );
+
+                                    info!(
+                                        "MATCHED {} ID: {} with port.name {}",
+                                        global.type_, global.id, port_name
+                                    );
+                                    let _ = tx.send(global.id);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
             }
         })
-        .register(); // No ? operator here
+        .global_remove(|_| {})
+        .register();
 
-    // Wait for a short time for a response
-    let timeout = std::time::Duration::from_secs(2);
-    match receiver.recv_timeout(timeout) {
-        Ok(Some(id)) => {
-            println!("Found node with ID: {}", id);
-            Ok(Some(id))
+    // Setup core listener to detect sync completion
+    let mainloop_ref = mainloop.clone();
+    let _core_listener = core
+        .add_listener_local()
+        .info(|_| {})
+        .done(move |id, seq| {
+            info!("Core sync done for ID: {} seq: {}", id, seq.seq());
+            if id == pw::core::PW_ID_CORE {
+                // Registry sync complete, signal to quit the mainloop
+                let _ = tx_clone.send(0); // Special value to signal completion
+                mainloop_ref.quit();
+            }
+        })
+        .register();
+
+    // Explicitly request a sync to ensure we get a done callback
+    let _ = core.sync(0);
+
+    mainloop.run();
+
+    // Collect all IDs that were sent through the channel
+    while let Ok(id) = rx.try_recv() {
+        info!("Received ID: {}", id);
+
+        if id != 0 {
+            // Skip our special signal value
+            matching_ids.push(id);
         }
-        Ok(None) => Ok(None),
-        Err(_) => Ok(None), // No response received before timeout
+    }
+
+    info!("Found {} matching IDs", matching_ids.len());
+
+    // Return None if no matches were found
+    if matching_ids.is_empty() {
+        None
+    } else {
+        Some(matching_ids)
     }
 }

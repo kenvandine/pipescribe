@@ -738,6 +738,7 @@ dependencies = [
  "log",
  "pipewire",
  "pipewire-sys",
+ "regex",
  "ringbuf",
  "spa",
  "whisper-rs",
