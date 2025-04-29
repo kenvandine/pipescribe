@@ -430,7 +430,7 @@ pub fn main() -> Result<(), pw::Error> {
      * called in a realtime thread. */
     stream.connect(
         spa::utils::Direction::Input,
-        None,
+        opt.target.as_ref().and_then(|s| s.parse::<u32>().ok()), // Convert target string to u32 ID if provided
         pw::stream::StreamFlags::AUTOCONNECT
             | pw::stream::StreamFlags::MAP_BUFFERS
             | pw::stream::StreamFlags::RT_PROCESS,
