@@ -10,30 +10,24 @@ use pipewire as pw;
 use pw::{properties::properties, spa};
 
 use ringbuf::storage::Heap;
-use ringbuf::traits::{Observer, Split};
+use ringbuf::traits::Split;
 use ringbuf::wrap::caching::Caching;
-use ringbuf::{SharedRb, consumer::Consumer, producer::Producer};
+use ringbuf::{SharedRb, producer::Producer};
 
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
 use std::mem;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
-
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use env_logger;
-use log::{debug, error, info};
+use hound;
+use log::info;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-// Add hound crate for WAV file handling
-use hound;
 
 mod pipewire_utils;
+mod whisper_processor;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
@@ -154,159 +148,14 @@ pub fn main() -> Result<(), pw::Error> {
         *pw::keys::MEDIA_ROLE => "Music",
     };
 
-    // uncomment if you want to capture from the sink monitor ports
-    // props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
-
-    let model_path = opt.model;
-    let context_params = WhisperContextParameters::default();
-    let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
-    inference_params.set_n_threads(
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1) as i32,
+    // Create and start the WhisperProcessor
+    let processor = whisper_processor::WhisperProcessor::new(
+        &opt.model,
+        consumer,
+        ring_buffer_size,
+        opt.output_dir.clone(),
+        opt.language.clone(),
     );
-    inference_params.set_translate(true);
-    inference_params.set_language(Some("en"));
-    inference_params.set_print_special(true);
-    inference_params.set_print_progress(false);
-    inference_params.set_print_realtime(false);
-    inference_params.set_print_timestamps(false);
-    inference_params.set_token_timestamps(true);
-
-    let ctx = Arc::new(
-        WhisperContext::new_with_params(&model_path, context_params).expect("failed to load model"),
-    );
-
-    // Create a state in the main thread that will be moved to the processing thread
-    let state = ctx.create_state().expect("failed to create state");
-
-    // Setup thread termination flag
-    let running = Arc::new(AtomicBool::new(true));
-    let running_clone = running.clone();
-
-    // Set up a shared counter for WAV file naming
-    let file_counter = Arc::new(Mutex::new(0));
-
-    // Pass output directory and file counter to the processing thread
-    let output_dir = opt.output_dir.clone();
-    let file_counter_clone = file_counter.clone();
-
-    // Create processing thread that consumes from the ring buffer
-    let processing_thread = thread::spawn(move || {
-        let mut state = state;
-        let mut consumer = consumer;
-
-        while running_clone.load(Ordering::SeqCst) {
-            let available_samples = consumer.occupied_len();
-            // info!("Available samples: {}", available_samples);
-
-            // Only process if we have a meaningful number of samples
-            if available_samples >= ring_buffer_size as usize {
-                // At least 0.25 seconds
-                // Define how many samples to process at once
-                let batch_size = usize::min(available_samples, inference_rate as usize); // Process up to 1 second of audio
-                let mut buffer_samples = Vec::with_capacity(batch_size);
-
-                // Collect the samples
-                for _ in 0..available_samples {
-                    if let Some(sample) = consumer.try_pop() {
-                        buffer_samples.push(sample);
-                    } else {
-                        error!("Failed to pop sample from ring buffer");
-                        break; // Should not happen, but just in case
-                    }
-                }
-
-                debug!(
-                    "Running inference on {} accumulated samples",
-                    buffer_samples.len()
-                );
-
-                // Save audio to WAV file if output directory is specified
-                if let Some(output_dir) = &output_dir {
-                    // Get next file number
-                    let file_num = {
-                        let mut counter = file_counter_clone.lock().unwrap();
-                        let num = *counter;
-                        *counter += 1;
-                        num
-                    };
-
-                    // Create WAV file path
-                    let wav_path = output_dir.join(format!("audio_{:04}.wav", file_num));
-
-                    // Write WAV file
-                    match write_wav_file(&wav_path, &buffer_samples, 16000) {
-                        Ok(_) => info!("Saved audio to {}", wav_path.display()),
-                        Err(e) => eprintln!("Failed to save WAV file: {}", e),
-                    }
-                }
-
-                // Run the model
-                let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-                if let Err(e) = state.full(inference_params, &buffer_samples) {
-                    eprintln!("Failed to run model: {}", e);
-                    continue;
-                }
-
-                let num_segments = match state.full_n_segments() {
-                    Ok(n) => n,
-                    Err(e) => {
-                        eprintln!("Failed to get number of segments: {}", e);
-                        continue;
-                    }
-                };
-
-                for i in 0..num_segments {
-                    let segment = match state.full_get_segment_text(i) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-
-                    let start_timestamp = match state.full_get_segment_t0(i) {
-                        Ok(t) => t,
-                        Err(_) => continue,
-                    };
-
-                    let end_timestamp = match state.full_get_segment_t1(i) {
-                        Ok(t) => t,
-                        Err(_) => continue,
-                    };
-
-                    let first_token_dtw_ts = if let Ok(token_count) = state.full_n_tokens(i) {
-                        if token_count > 0 {
-                            if let Ok(token_data) = state.full_get_token_data(i, 0) {
-                                token_data.t_dtw
-                            } else {
-                                -1i64
-                            }
-                        } else {
-                            -1i64
-                        }
-                    } else {
-                        -1i64
-                    };
-
-                    debug!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
-
-                    // Print the segment to stdout.
-                    debug!(
-                        "[{} - {} ({})]: {}",
-                        start_timestamp, end_timestamp, first_token_dtw_ts, segment
-                    );
-
-                    println!("{}", segment);
-                }
-            } else {
-                // Sleep longer when we don't have enough samples
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-
-            // Short sleep between processing batches
-            // thread::sleep(Duration::from_millis(10));
-        }
-    });
 
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
 
@@ -463,11 +312,8 @@ pub fn main() -> Result<(), pw::Error> {
     // and wait while we let things run
     mainloop.run();
 
-    // Signal the processing thread to stop and wait for it
-    running.store(false, Ordering::SeqCst);
-    if let Err(e) = processing_thread.join() {
-        eprintln!("Error joining processing thread: {:?}", e);
-    }
+    // Stop the processor when exiting
+    processor.stop();
 
     Ok(())
 }
