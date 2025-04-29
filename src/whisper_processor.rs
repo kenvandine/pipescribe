@@ -223,3 +223,74 @@ impl Drop for WhisperProcessor {
         self.running.store(false, Ordering::SeqCst);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ringbuf::traits::{Producer, RingBuffer, Split};
+    use std::fs::File;
+    use std::io::BufReader;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_whisper_processor_with_jfk_speech() {
+        // Create a temporary directory for output files
+        let output_dir = tempdir().expect("Failed to create temp directory");
+
+        // Set up the ring buffer
+        let ring_buffer_size = 32000; // 2 seconds at 16kHz
+        let ring_buffer = SharedRb::<Heap<f32>>::new(ring_buffer_size * 2);
+        let (mut producer, consumer) = ring_buffer.split();
+
+        // Path to the test file
+        let wav_path = Path::new("fixtures/jfk_berlin_address_high.wav");
+
+        // Read the WAV file
+        let reader = hound::WavReader::open(wav_path).expect("Could not open test WAV file");
+        let spec = reader.spec();
+
+        println!("Test file specs: {:?}", spec);
+        assert_eq!(spec.sample_format, hound::SampleFormat::Float);
+
+        // Get the samples from the WAV file
+        let samples: Vec<f32> = reader.into_samples().filter_map(Result::ok).collect();
+
+        // Path to your whisper model - update this to point to your model file
+        let model_path = "models/ggml-base.en.bin"; // Adjust this path
+
+        // Start the WhisperProcessor
+        let processor = WhisperProcessor::new(
+            model_path,
+            consumer,
+            ring_buffer_size,
+            Some(output_dir.path().to_path_buf()),
+            Some("en".to_string()),
+        );
+
+        // Push samples to the ring buffer
+        for sample in samples {
+            while producer.is_full() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            producer.try_push(sample).expect("Failed to push sample");
+        }
+
+        // Give the processor some time to process the audio
+        std::thread::sleep(Duration::from_secs(5));
+
+        // Stop the processor
+        processor.stop();
+
+        // Verify output files were created
+        let files = std::fs::read_dir(output_dir.path())
+            .expect("Failed to read output directory")
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+
+        assert!(!files.is_empty(), "No output files were created");
+
+        // Note: Since the current implementation prints to stdout rather than returning data,
+        // we can't directly verify the transcript content in this test.
+        // A real test would capture stdout or modify the processor to return/store results.
+    }
+}
