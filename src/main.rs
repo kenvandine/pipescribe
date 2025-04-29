@@ -69,6 +69,13 @@ struct Opt {
         help = "Directory to save processed audio as WAV files"
     )]
     output_dir: Option<PathBuf>,
+    #[clap(
+        short = 'l',
+        long = "language",
+        help = "Language code for whisper model",
+        default_value = "en"
+    )]
+    language: Option<String>,
 }
 
 pub fn main() -> Result<(), pw::Error> {
@@ -166,7 +173,11 @@ pub fn main() -> Result<(), pw::Error> {
     let model_path = opt.model;
     let context_params = WhisperContextParameters::default();
     let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
-    inference_params.set_n_threads(10);
+    inference_params.set_n_threads(
+        std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(1) as i32,
+    );
     inference_params.set_translate(true);
     inference_params.set_language(Some("en"));
     inference_params.set_print_special(true);
