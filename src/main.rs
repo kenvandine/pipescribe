@@ -28,7 +28,7 @@ use std::time::Duration;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use env_logger;
-use log::{error, info};
+use log::{debug, error, info};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -86,14 +86,34 @@ pub fn main() -> Result<(), pw::Error> {
     pw::init();
 
     let opt = Opt::parse();
-    // Try to find PipeWire IDs matching the target pattern
-    let pattern_vec = vec![opt.target.clone().unwrap_or_default()];
-    let target_ids = match find_pipewire_ids_by_pattern(pattern_vec) {
-        None => {
-            eprintln!("Error: No matching PipeWire sources found");
-            std::process::exit(1)
+
+    // Determine target ID - either directly from number or by pattern matching
+    let target_ids = if let Some(target) = &opt.target {
+        if let Ok(direct_id) = target.parse::<u32>() {
+            // If the target is a valid number, use it directly
+            info!("Using direct target ID: {}", direct_id);
+            vec![direct_id]
+        } else {
+            // Otherwise use the pattern matching routine
+            let pattern_vec = vec![target.clone()];
+            match find_pipewire_ids_by_pattern(pattern_vec) {
+                None => {
+                    eprintln!("Error: No matching PipeWire sources found");
+                    std::process::exit(1)
+                }
+                Some(ids) => ids,
+            }
         }
-        Some(ids) => ids,
+    } else {
+        // If no target specified, use empty pattern to find defaults
+        let pattern_vec = vec!["".to_string()];
+        match find_pipewire_ids_by_pattern(pattern_vec) {
+            None => {
+                eprintln!("Error: No matching PipeWire sources found");
+                std::process::exit(1)
+            }
+            Some(ids) => ids,
+        }
     };
 
     let mainloop = pw::main_loop::MainLoop::new(None)?;
@@ -199,7 +219,7 @@ pub fn main() -> Result<(), pw::Error> {
                     }
                 }
 
-                println!(
+                debug!(
                     "Running inference on {} accumulated samples",
                     buffer_samples.len()
                 );
@@ -255,8 +275,6 @@ pub fn main() -> Result<(), pw::Error> {
                         Err(_) => continue,
                     };
 
-                    println!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
-
                     let first_token_dtw_ts = if let Ok(token_count) = state.full_n_tokens(i) {
                         if token_count > 0 {
                             if let Ok(token_data) = state.full_get_token_data(i, 0) {
@@ -271,19 +289,15 @@ pub fn main() -> Result<(), pw::Error> {
                         -1i64
                     };
 
+                    debug!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
+
                     // Print the segment to stdout.
-                    log::info!(
+                    debug!(
                         "[{} - {} ({})]: {}",
-                        start_timestamp,
-                        end_timestamp,
-                        first_token_dtw_ts,
-                        segment
+                        start_timestamp, end_timestamp, first_token_dtw_ts, segment
                     );
 
-                    // Format the segment information as a string.
-                    let line = format!("[{} - {}]: {}\n", start_timestamp, end_timestamp, segment);
-
-                    log::info!("{}", line);
+                    println!("{}", segment);
                 }
             } else {
                 // Sleep longer when we don't have enough samples
@@ -521,25 +535,49 @@ pub fn find_pipewire_ids_by_pattern(patterns: Vec<String>) -> Option<Vec<u32>> {
         .global(move |global| {
             if let Some(props) = global.props.as_ref() {
                 // Check if port.name exists and matches any pattern
-                if let Some(port_name) = props.get("object.path") {
-                    // Only proceed if port.direction is "out"
-                    if let Some(port_direction) = props.get("port.direction") {
-                        if port_direction == "out" {
-                            for regex in &regexes {
-                                if regex.is_match(port_name) {
-                                    info!(
-                                        "Checking port.name: {} for global ID: {}",
-                                        port_name, global.id
-                                    );
 
-                                    info!(
-                                        "MATCHED {} ID: {} with port.name {}",
-                                        global.type_, global.id, port_name
-                                    );
-                                    let _ = tx.send(global.id);
-                                    break;
+                if let Some(port_name) = props.get("application.name") {
+                    // Only proceed if port.direction is "out"
+                    for regex in &regexes {
+                        if regex.is_match(port_name) {
+                            info!(
+                                "Checking port.name: {} for global ID: {}",
+                                port_name, global.id
+                            );
+
+                            // Enumerate all properties for debugging
+                            if let Some(props) = global.props.as_ref() {
+                                info!(
+                                    "Global ID: {} of type: {} properties:",
+                                    global.id, global.type_
+                                );
+                                for (key, value) in props.iter() {
+                                    info!("  {}: {}", key, value);
                                 }
                             }
+
+                            // Check if media.class contains both "Output" and "Audio"
+                            if let Some(media_class) = props.get("media.class") {
+                                if !media_class.contains("Output") || !media_class.contains("Audio")
+                                {
+                                    info!(
+                                        "Skipping global ID: {} because media.class does not match: {}",
+                                        global.id,
+                                        media_class
+                                    );
+                                    continue;
+                                }
+                            } else {
+                                // Skip if media.class is not present
+                                continue;
+                            }
+
+                            info!(
+                                "MATCHED {} ID: {} with port.name {}",
+                                global.type_, global.id, port_name
+                            );
+                            let _ = tx.send(global.id);
+                            break;
                         }
                     }
                 }
@@ -554,7 +592,7 @@ pub fn find_pipewire_ids_by_pattern(patterns: Vec<String>) -> Option<Vec<u32>> {
         .add_listener_local()
         .info(|_| {})
         .done(move |id, seq| {
-            info!("Core sync done for ID: {} seq: {}", id, seq.seq());
+            debug!("Core sync done for ID: {} seq: {}", id, seq.seq());
             if id == pw::core::PW_ID_CORE {
                 // Registry sync complete, signal to quit the mainloop
                 let _ = tx_clone.send(0); // Special value to signal completion
