@@ -8,13 +8,12 @@
 use clap::Parser;
 use pipewire as pw;
 use pw::{properties::properties, spa};
-use regex::Regex;
+
 use ringbuf::storage::Heap;
 use ringbuf::traits::{Observer, Split};
 use ringbuf::wrap::caching::Caching;
 use ringbuf::{SharedRb, consumer::Consumer, producer::Producer};
-#[cfg(feature = "v0_3_44")]
-use spa::WritableDict;
+
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
@@ -149,23 +148,10 @@ pub fn main() -> Result<(), pw::Error> {
         ring_producer: producer,
     };
 
-    #[cfg(not(feature = "v0_3_44"))]
     let props = properties! {
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "Music",
-    };
-    #[cfg(feature = "v0_3_44")]
-    let props = {
-        let mut props = properties! {
-            *pw::keys::MEDIA_TYPE => "Audio",
-            *pw::keys::MEDIA_CATEGORY => "Capture",
-            *pw::keys::MEDIA_ROLE => "Music",
-        };
-        if let Some(target) = opt.target {
-            props.insert(*pw::keys::TARGET_OBJECT, target);
-        }
-        props
     };
 
     // uncomment if you want to capture from the sink monitor ports
