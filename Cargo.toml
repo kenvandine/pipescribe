@@ -1,7 +1,10 @@
 [package]
-name = "scribe"
+name = "pipescribe"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A tool for real-time transcription of audio streams using Whisper and PipeWire."
+repository = "https://github.com/mz2/scribe"
 
 [features]
 default = []
@@ -9,12 +12,12 @@ cuda = ["whisper-rs/cuda"]
 
 # Define the library target
 [lib]
-name = "scribe"
+name = "pipescribe"
 path = "src/lib.rs"
 
 # Define the binary targets
 [[bin]]
-name = "scribe"
+name = "pipescribe"
 path = "src/main.rs"
 
 

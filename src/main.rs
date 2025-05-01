@@ -21,9 +21,9 @@ use std::sync::mpsc::Sender;
 use std::thread;
 
 // Import from the library instead of local modules
-use scribe::WhisperProcessor;
-use scribe::WhisperSegment;
-use scribe::{audio_utils, pipewire_utils};
+use pipescribe::WhisperProcessor;
+use pipescribe::WhisperSegment;
+use pipescribe::{audio_utils, pipewire_utils};
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
