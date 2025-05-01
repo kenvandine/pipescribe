@@ -3,6 +3,7 @@
 
 pub mod audio_utils;
 pub mod pipewire_utils;
+pub mod transcriber;
 pub mod whisper_processor;
 
 pub use whisper_processor::WhisperProcessor;
