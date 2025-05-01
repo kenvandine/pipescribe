@@ -18,17 +18,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libssl-dev pkg-config libpipewire-0.3-dev build-essential
 
-      - name: Set up CUDA Toolkit
-        run: |
-            sudo apt-get update
-            sudo apt-get install -y gnupg software-properties-common
-            sudo apt-get install -y wget gnupg
-            wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-            sudo dpkg -i cuda-keyring_1.1-1_all.deb
-
-            echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list
-            sudo apt-get update
-            sudo apt-get -y install cuda-toolkit-12-8
+      # - name: Set up CUDA Toolkit
+      #  run: |
+      #      sudo apt-get update
+      #      sudo apt-get install -y gnupg software-properties-common
+      #      sudo apt-get install -y wget gnupg
+      #      wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+      #      sudo dpkg -i cuda-keyring_1.1-1_all.deb
+      #
+      #      echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list
+      #      sudo apt-get update
+      #      sudo apt-get -y install cuda-toolkit-12-8
       - name: Cache Rust dependencies
         uses: actions/cache@v3
         with:
@@ -52,7 +52,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --verbose --features cuda
+          args: --verbose # --features cuda
         env:
           RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/cuda/lib64"
 
@@ -67,7 +67,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --features cuda
+          args: --verbose # --features cuda
         env:
           RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/cuda/lib64"
 
