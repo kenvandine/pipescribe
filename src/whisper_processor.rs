@@ -307,9 +307,9 @@ mod tests {
 
         // Define expected segments
         let expected_segments = vec![
-            "who for so many years has",
+            "who for so many years",
             "committed Germany to democracy.",
-            "and freedom and",
+            "And freedom man.", // the tiny model variant makes this, funny, mistake.
         ];
 
         let received_segments = Arc::new(Mutex::new(Vec::new()));
@@ -332,7 +332,8 @@ mod tests {
 
         println!("Creating whisper processor");
         let processor = WhisperProcessor::new(
-            "models/ggml-medium.en.bin",
+            // need to have downloaded this with `./bin/download-ggml-models.sh tiny.en && mv ggml-tiny.en.bin models/`
+            "models/ggml-tiny.en.bin",
             sample_receiver,
             16000, // Process after 1 second of audio
             None,
@@ -357,7 +358,7 @@ mod tests {
         }
 
         let start_time = Instant::now();
-        let max_wait = Duration::from_secs(30); // Longer timeout to allow processing
+        let max_wait = Duration::from_secs(5); // Longer timeout to allow processing
 
         let all_segments_received = |received: &[String]| -> bool {
             expected_segments
