@@ -18,6 +18,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libssl-dev pkg-config libpipewire-0.3-dev build-essential
 
+      - name: Install CUDA
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda-toolkit-12-3
+          echo "CUDA_HOME=/usr/local/cuda" >> $GITHUB_ENV
+          echo "/usr/local/cuda/bin" >> $GITHUB_PATH
+          # Verify CUDA installation
+          nvcc --version
+
       - name: Cache Rust dependencies
         uses: actions/cache@v3
         with:
@@ -41,7 +52,9 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --verbose
+          args: --verbose --features cuda
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/cuda/lib64"
 
       - name: Download Whisper model
         run: |
@@ -54,10 +67,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose --features cuda
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/cuda/lib64"
 
       - name: Run clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --features cuda -- -D warnings
