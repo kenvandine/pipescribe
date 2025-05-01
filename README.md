@@ -16,7 +16,25 @@ Pipescribe is a real-time audio transcription tool that captures audio from Pipe
 - PipeWire 
 - Whisper model files
 
-## Installation
+
+## Installation via `cargo`
+
+You can install Pipescribe directly using Cargo:
+
+```bash
+# Basic installation
+cargo install pipescribe
+
+# Installation with CUDA support (if you have NVIDIA GPU and CUDA installed)
+cargo install pipescribe --features cuda
+```
+
+When installing with CUDA support, ensure you have the CUDA toolkit installed on your system.
+
+After installation, you'll still need to download a Whisper model file as described with the local build based installation steps below.
+
+
+## Installation by building from source locally
 
 1. Clone the repository:
    
@@ -45,7 +63,7 @@ sudo apt-get install -y libpipewire-0.3-dev build-essential
 4. Build the project:
 
 ```bash
-cargo build --release
+cargo build --release --features cuda
 ```
 
 ## Usage
@@ -59,5 +77,5 @@ pipescribe --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ... or to test out a local build:
 
 ```bash
-cargo run --bin pipescribe -- --buffer-seconds 5 --model ./models/ggml-medium.en.bin
+cargo run --bin pipescribe --features cuda -- --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ```
