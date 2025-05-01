@@ -37,19 +37,18 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Download Whisper model
-        run: |
-          mkdir -p models
-          if [ ! -f "models/ggml-medium.en.bin" ]; then
-            ./bin/download-ggml-models.sh medium.en
-          fi
-
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --verbose
 
+      - name: Download Whisper model
+        run: |
+            mkdir -p models
+            if [ ! -f "models/ggml-medium.en.bin" ]; then
+              ./bin/download-ggml-models.sh medium.en
+            fi
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
