@@ -17,21 +17,21 @@ use ringbuf::{SharedRb, producer::Producer};
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
-use std::mem;
 use std::sync::Arc;
 
 use env_logger;
-use hound;
-use log::info;
+use log::{debug, info};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
 
+mod audio_utils;
 mod pipewire_utils;
 mod whisper_processor;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
-    cursor_move: bool,
     ring_producer: Caching<Arc<SharedRb<Heap<f32>>>, true, false>,
 }
 
@@ -73,8 +73,6 @@ struct Opt {
 }
 
 pub fn main() -> Result<(), pw::Error> {
-    whisper_rs::install_logging_hooks();
-
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -138,7 +136,6 @@ pub fn main() -> Result<(), pw::Error> {
 
     let data = UserData {
         format: Default::default(),
-        cursor_move: false,
         ring_producer: producer,
     };
 
@@ -148,6 +145,21 @@ pub fn main() -> Result<(), pw::Error> {
         *pw::keys::MEDIA_ROLE => "Music",
     };
 
+    let (segment_sender, segment_receiver) = mpsc::channel::<whisper_processor::WhisperSegment>();
+
+    thread::spawn(move || {
+        while let Ok(segment) = segment_receiver.recv() {
+            debug!(
+                "[{} - {} ({})]: {}",
+                segment.start_timestamp,
+                segment.end_timestamp,
+                segment.first_token_dtw_ts,
+                segment.text
+            );
+            println!("{}", segment.text);
+        }
+    });
+
     // Create and start the WhisperProcessor
     let processor = whisper_processor::WhisperProcessor::new(
         &opt.model,
@@ -155,6 +167,7 @@ pub fn main() -> Result<(), pw::Error> {
         ring_buffer_size,
         opt.output_dir.clone(),
         opt.language.clone(),
+        segment_sender, // Add the sender channel
     );
 
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
@@ -214,7 +227,6 @@ pub fn main() -> Result<(), pw::Error> {
                 let data = &mut datas[0];
                 let n_channels = user_data.format.channels();
                 let chunk = data.chunk();
-                let n_samples = chunk.size() / (mem::size_of::<f32>() as u32);
 
                 // Extract all information from chunk before borrowing data mutably
                 let start_offset = chunk.offset() as usize;
@@ -233,9 +245,9 @@ pub fn main() -> Result<(), pw::Error> {
                         }
                     };
 
+                    // Use our audio_utils function instead of whisper_rs
                     let mono_samples = if n_channels == 2 {
-                        whisper_rs::convert_stereo_to_mono_audio(float_samples)
-                            .expect("Failed to convert samples to mono")
+                        audio_utils::convert_stereo_to_mono(float_samples)
                     } else {
                         float_samples.to_vec()
                     };
@@ -245,29 +257,10 @@ pub fn main() -> Result<(), pw::Error> {
                         let _ = user_data.ring_producer.try_push(sample);
                     }
 
-                    if user_data.cursor_move {
-                        print!("\x1B[{}A", n_channels + 1);
-                    }
-                    // info!("captured {} samples", n_samples / n_channels);
-
                     let mut max: f32 = 0.0;
                     for &sample in mono_samples.iter() {
                         max = max.max(sample.abs());
                     }
-
-                    // Display the peak meter
-                    /*
-                    let peak = ((max * 30.0) as usize).clamp(0, 39);
-                    println!(
-                        "mono: |{:>w1$}{:w2$}| peak:{}",
-                        "*",
-                        "",
-                        max,
-                        w1 = peak + 1,
-                        w2 = 40 - peak
-                    );
-                    user_data.cursor_move = true;
-                    */
                 }
             }
         })
@@ -309,30 +302,8 @@ pub fn main() -> Result<(), pw::Error> {
         &mut params,
     )?;
 
-    // and wait while we let things run
     mainloop.run();
-
-    // Stop the processor when exiting
     processor.stop();
 
-    Ok(())
-}
-
-/// Write audio samples to a WAV file
-fn write_wav_file(path: &Path, samples: &[f32], sample_rate: u32) -> Result<(), hound::Error> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let mut writer = hound::WavWriter::create(path, spec)?;
-
-    for &sample in samples {
-        writer.write_sample(sample)?;
-    }
-
-    writer.finalize()?;
     Ok(())
 }

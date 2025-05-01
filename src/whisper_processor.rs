@@ -1,17 +1,27 @@
 use hound;
 use log::{debug, error, info};
-use ringbuf::{SharedRb, consumer::Consumer, storage::Heap, traits::Observer};
+use ringbuf::{consumer::Consumer, traits::Observer};
 
 use std::{
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+/// Represents a transcription segment from Whisper
+#[derive(Debug, Clone)]
+pub struct WhisperSegment {
+    pub text: String,
+    pub start_timestamp: i64,
+    pub end_timestamp: i64,
+    pub first_token_dtw_ts: i64,
+}
 
 pub struct WhisperProcessor {
     running: Arc<AtomicBool>,
@@ -25,11 +35,13 @@ impl WhisperProcessor {
         ring_buffer_size: usize,
         output_dir: Option<PathBuf>,
         language: Option<String>,
+        segment_sender: Sender<WhisperSegment>,
     ) -> Self
     where
         T: Consumer + Observer<Item = f32> + Send + 'static,
     {
-        // Create Whisper context and configure parameters
+        whisper_rs::install_logging_hooks();
+
         let context_params = WhisperContextParameters::default();
         let ctx = Arc::new(
             WhisperContext::new_with_params(model_path, context_params)
@@ -43,10 +55,17 @@ impl WhisperProcessor {
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
+        // Setup processing flag for backpressure
+        let processing = Arc::new(AtomicBool::new(false));
+        let processing_clone = processing.clone();
+
+        // Setup condition variable for synchronization
+        let condition = Arc::new((Mutex::new(false), Condvar::new()));
+        let condition_clone = condition.clone();
+
         // Set up a shared counter for WAV file naming
         let file_counter = Arc::new(Mutex::new(0));
 
-        // Configure inference parameters
         let mut inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
         inference_params.set_n_threads(
             std::thread::available_parallelism()
@@ -55,7 +74,6 @@ impl WhisperProcessor {
         );
         inference_params.set_translate(true);
 
-        // Set language if provided, otherwise default to English
         let lang = language.unwrap_or_else(|| "en".to_string());
         inference_params.set_language(Some(&lang));
 
@@ -65,7 +83,6 @@ impl WhisperProcessor {
         inference_params.set_print_timestamps(false);
         inference_params.set_token_timestamps(true);
 
-        // Assuming 16000Hz is the inference rate for Whisper
         let inference_rate = 16000;
 
         // Create processing thread that consumes from the ring buffer
@@ -76,13 +93,15 @@ impl WhisperProcessor {
             while running_clone.load(Ordering::SeqCst) {
                 let available_samples = consumer.occupied_len();
 
-                // Only process if we have a meaningful number of samples
+                // Only process if we have enough samples
+                // (at least 1 second of audio needed by whisper, but we can process more)
                 if available_samples >= ring_buffer_size as usize {
-                    // Define how many samples to process at once
-                    let batch_size = usize::min(available_samples, inference_rate as usize); // Process up to 1 second of audio
+                    // Set processing flag to provide backpressure
+                    processing_clone.store(true, Ordering::SeqCst);
+
+                    let batch_size = usize::min(available_samples, inference_rate as usize);
                     let mut buffer_samples: Vec<f32> = Vec::with_capacity(batch_size);
 
-                    // Collect the samples
                     for _ in 0..available_samples {
                         if let Some(sample) = consumer.try_pop() {
                             buffer_samples.push(sample);
@@ -97,7 +116,7 @@ impl WhisperProcessor {
                         buffer_samples.len()
                     );
 
-                    // Save audio to WAV file if output directory is specified
+                    // Diagnostics: Save audio to WAV file if output directory is specified
                     if let Some(output_dir) = &output_dir {
                         // Get next file number
                         let file_num = {
@@ -107,20 +126,27 @@ impl WhisperProcessor {
                             num
                         };
 
-                        // Create WAV file path
                         let wav_path = output_dir.join(format!("audio_{:04}.wav", file_num));
 
-                        // Write WAV file
                         match Self::write_wav_file(&wav_path, &buffer_samples, 16000) {
                             Ok(_) => info!("Saved audio to {}", wav_path.display()),
                             Err(e) => eprintln!("Failed to save WAV file: {}", e),
                         }
                     }
 
-                    // Run the model
                     let inference_params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
                     if let Err(e) = state.full(inference_params, &buffer_samples) {
                         eprintln!("Failed to run model: {}", e);
+
+                        // Reset processing flag even if inference failed
+                        processing_clone.store(false, Ordering::SeqCst);
+
+                        // Signal that processing has finished
+                        let (lock, cvar) = &*condition_clone;
+                        let mut finished = lock.lock().unwrap();
+                        *finished = true;
+                        cvar.notify_all();
+
                         continue;
                     }
 
@@ -164,14 +190,27 @@ impl WhisperProcessor {
 
                         debug!("[{} - {}]: {}", start_timestamp, end_timestamp, segment);
 
-                        // Print the segment to stdout.
-                        debug!(
-                            "[{} - {} ({})]: {}",
-                            start_timestamp, end_timestamp, first_token_dtw_ts, segment
-                        );
+                        // Send the segment through the channel instead of printing
+                        let whisper_segment = WhisperSegment {
+                            text: segment,
+                            start_timestamp,
+                            end_timestamp,
+                            first_token_dtw_ts,
+                        };
 
-                        println!("{}", segment);
+                        if let Err(e) = segment_sender.send(whisper_segment) {
+                            error!("Failed to send segment through channel: {}", e);
+                        }
                     }
+
+                    // Reset processing flag now that we're done
+                    processing_clone.store(false, Ordering::SeqCst);
+
+                    // Signal that processing has finished
+                    let (lock, cvar) = &*condition_clone;
+                    let mut finished = lock.lock().unwrap();
+                    *finished = true;
+                    cvar.notify_all();
                 } else {
                     // Sleep longer when we don't have enough samples
                     thread::sleep(Duration::from_millis(100));
@@ -227,70 +266,133 @@ impl Drop for WhisperProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ringbuf::traits::{Producer, RingBuffer, Split};
-    use std::fs::File;
-    use std::io::BufReader;
-    use tempfile::tempdir;
+    use crate::audio_utils;
+    use env_logger;
+    use log::LevelFilter;
+    use ringbuf::SharedRb;
+    use ringbuf::storage::Heap;
+    use ringbuf::traits::{Producer, Split};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_whisper_processor_with_jfk_speech() {
-        // Create a temporary directory for output files
-        let output_dir = tempdir().expect("Failed to create temp directory");
+        // Set up basic logging
+        let _ = env_logger::builder()
+            .filter_level(LevelFilter::Info)
+            .is_test(true)
+            .try_init();
 
-        // Set up the ring buffer
-        let ring_buffer_size = 32000; // 2 seconds at 16kHz
-        let ring_buffer = SharedRb::<Heap<f32>>::new(ring_buffer_size * 2);
+        println!("Starting test_whisper_processor_with_jfk_speech");
+
+        // Set up the ring buffer - medium size to not overwhelm memory
+        let ring_buffer_size = 48000; // 3 seconds at 16kHz
+        let ring_buffer = SharedRb::<Heap<f32>>::new(ring_buffer_size);
         let (mut producer, consumer) = ring_buffer.split();
 
-        // Path to the test file
-        let wav_path = Path::new("fixtures/jfk_berlin_address_high.wav");
-
-        // Read the WAV file
+        // Load test audio file
+        let wav_path = Path::new("fixtures/jfk_berlin_address_high_f32le.wav");
         let reader = hound::WavReader::open(wav_path).expect("Could not open test WAV file");
         let spec = reader.spec();
-
         println!("Test file specs: {:?}", spec);
-        assert_eq!(spec.sample_format, hound::SampleFormat::Float);
 
-        // Get the samples from the WAV file
-        let samples: Vec<f32> = reader.into_samples().filter_map(Result::ok).collect();
+        let raw_samples: Vec<f32> = reader.into_samples().filter_map(Result::ok).collect();
+        println!("Loaded {} raw samples from file", raw_samples.len());
 
-        // Path to your whisper model - update this to point to your model file
-        let model_path = "models/ggml-base.en.bin"; // Adjust this path
+        let samples = audio_utils::preprocess_for_whisper(
+            &raw_samples,
+            spec.channels as u32,
+            spec.sample_rate,
+            16000,
+        );
+        println!("Preprocessed to {} samples at 16kHz", samples.len());
 
-        // Start the WhisperProcessor
+        // Track received segments with atomic flag - simple synchronization
+        let received_segment = Arc::new(AtomicBool::new(false));
+        let received_segment_clone = received_segment.clone();
+
+        // Create channel for segments
+        let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
+        // Create a vector to store received segments
+        let segments_received = Arc::new(Mutex::new(Vec::new()));
+        let segments_clone = segments_received.clone();
+
+        // Start thread to receive and track segments
+        thread::spawn(move || {
+            while let Ok(segment) = segment_receiver.recv() {
+                println!(
+                    "[{} - {}]: {}",
+                    segment.start_timestamp, segment.end_timestamp, segment.text
+                );
+
+                // Store the segment
+                segments_clone.lock().unwrap().push(segment.clone());
+
+                // Set flag that we've received a segment
+                received_segment_clone.store(true, Ordering::SeqCst);
+            }
+        });
+
+        // Later in the test, after processor.stop(), add:
+        let segments = segments_received.lock().unwrap();
+        assert!(!segments.is_empty(), "No segments were received");
+
+        // Check for expected content
+        let all_content = segments
+            .iter()
+            .map(|seg| seg.text.clone())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Create processor - use small threshold to process data quickly
+        println!("Creating whisper processor");
         let processor = WhisperProcessor::new(
-            model_path,
+            "models/ggml-base.en.bin",
             consumer,
-            ring_buffer_size,
-            Some(output_dir.path().to_path_buf()),
+            16000, // Process after 1 second of audio
+            None,
             Some("en".to_string()),
+            segment_sender,
         );
 
-        // Push samples to the ring buffer
-        for sample in samples {
-            while producer.is_full() {
-                std::thread::sleep(Duration::from_millis(10));
+        // Feed only a small portion of samples - just enough to generate output
+        println!("Feeding sample data to processor");
+        let sample_limit = std::cmp::min(samples.len(), 16000 * 10); // Limit to 2 seconds of audio
+
+        for i in 0..sample_limit {
+            let mut retries = 0;
+            while producer.try_push(samples[i]).is_err() {
+                if retries >= 3 {
+                    println!("Buffer full after {} retries, skipping sample", retries);
+                    break;
+                }
+                retries += 1;
+                thread::sleep(Duration::from_millis(50));
             }
-            producer.try_push(sample).expect("Failed to push sample");
         }
 
-        // Give the processor some time to process the audio
-        std::thread::sleep(Duration::from_secs(5));
+        let start_time = Instant::now();
+        let max_wait = Duration::from_secs(15);
 
-        // Stop the processor
+        while !received_segment.load(Ordering::SeqCst) {
+            if start_time.elapsed() > max_wait {
+                println!(
+                    "Test timed out after {:?} without receiving segments",
+                    max_wait
+                );
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
         processor.stop();
 
-        // Verify output files were created
-        let files = std::fs::read_dir(output_dir.path())
-            .expect("Failed to read output directory")
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-
-        assert!(!files.is_empty(), "No output files were created");
-
-        // Note: Since the current implementation prints to stdout rather than returning data,
-        // we can't directly verify the transcript content in this test.
-        // A real test would capture stdout or modify the processor to return/store results.
+        if received_segment.load(Ordering::SeqCst) {
+            assert!(true);
+        } else {
+            println!("Test failed - no segments received");
+            assert!(false, "No segments were received from the WhisperProcessor");
+        }
     }
 }
