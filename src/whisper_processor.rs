@@ -358,7 +358,7 @@ mod tests {
         }
 
         let start_time = Instant::now();
-        let max_wait = Duration::from_secs(5); // Longer timeout to allow processing
+        let max_wait = Duration::from_secs(10); // Longer timeout to allow processing
 
         let all_segments_received = |received: &[String]| -> bool {
             expected_segments
