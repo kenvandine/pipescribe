@@ -11,6 +11,7 @@ pub fn convert_stereo_to_mono(stereo_samples: &[f32]) -> Vec<f32> {
     mono
 }
 
+#[cfg(test)]
 pub fn resample_with_linear_interpolation(
     samples: &[f32],
     src_sample_rate: u32,
@@ -22,10 +23,6 @@ pub fn resample_with_linear_interpolation(
 
     let src_rate = src_sample_rate as f64;
     let target_rate = target_sample_rate as f64;
-
-    if src_sample_rate == target_sample_rate {
-        return samples.to_vec();
-    }
 
     let ratio = target_rate / src_rate;
 
@@ -46,6 +43,7 @@ pub fn resample_with_linear_interpolation(
 /**
  * Preprocess audio samples by converting stereo to mono and resampling
  */
+#[cfg(test)]
 pub fn preprocess_for_whisper(
     samples: &[f32],
     channels: u32,

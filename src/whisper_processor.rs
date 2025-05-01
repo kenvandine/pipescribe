@@ -1,4 +1,3 @@
-use hound;
 use log::{debug, error, info};
 
 use std::{

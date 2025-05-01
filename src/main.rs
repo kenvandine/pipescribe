@@ -13,7 +13,6 @@ use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
 
-use env_logger;
 use log::{debug, info};
 use std::fs;
 use std::path::PathBuf;
