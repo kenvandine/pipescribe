@@ -1,5 +1,7 @@
 # Scribe
 
+[![Build and Test](https://github.com/mz2/scribe/actions/workflows/test.yaml/badge.svg)](https://github.com/mz2/scribe/actions/workflows/test.yaml)
+
 Scribe is a real-time audio transcription tool that captures audio from PipeWire sources and transcribes it using the Whisper speech recognition model.
 
 ## Features
