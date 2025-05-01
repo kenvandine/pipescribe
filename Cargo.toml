@@ -31,4 +31,3 @@ regex = "1.11.1"
 spa = "0.5.1"
 tempfile = "3.19.1"
 whisper-rs = {version = "0.14.2", features = ["log_backend"]}
-gtk4 = "0.6.0"
