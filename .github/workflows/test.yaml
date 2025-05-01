@@ -46,8 +46,9 @@ jobs:
       - name: Download Whisper model
         run: |
             mkdir -p models
-            if [ ! -f "models/ggml-medium.en.bin" ]; then
-              ./bin/download-ggml-models.sh medium.en
+            if [ ! -f "models/ggml-tiny.en.bin" ]; then
+              ./bin/download-ggml-models.sh tiny.en
+              cp ./ggml-tiny.en.bin models/
             fi
       - name: Run tests
         uses: actions-rs/cargo@v1
