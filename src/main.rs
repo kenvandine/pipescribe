@@ -9,15 +9,9 @@ use clap::Parser;
 use pipewire as pw;
 use pw::{properties::properties, spa};
 
-use ringbuf::storage::Heap;
-use ringbuf::traits::Split;
-use ringbuf::wrap::caching::Caching;
-use ringbuf::{SharedRb, producer::Producer};
-
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
-use std::sync::Arc;
 
 use env_logger;
 use log::{debug, info};

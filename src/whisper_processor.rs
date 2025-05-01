@@ -1,6 +1,5 @@
 use hound;
 use log::{debug, error, info};
-use ringbuf::{consumer::Consumer, traits::Observer};
 
 use std::{
     path::{Path, PathBuf},

@@ -13,7 +13,6 @@ log = "0.4.27"
 pipewire = "0.8.0"
 pipewire-sys = "0.8.0"
 regex = "1.11.1"
-ringbuf = "0.4.8"
 spa = "0.5.1"
 tempfile = "3.19.1"
 whisper-rs = {version = "0.14.2", features = ["cuda", "log_backend"]}
