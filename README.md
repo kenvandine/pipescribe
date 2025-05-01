@@ -53,3 +53,17 @@ scribe --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ```bash
 cargo run --bin scribe -- --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ```
+
+## Tray Application
+
+Scribe also includes a GTK4-based system tray application that displays recently captured and transcribed segments in a graphical interface.
+
+### Usage
+
+To run the tray application:
+
+```bash
+cargo run --bin scribe-tray
+```
+
+This will launch a window displaying the most recent transcriptions in real-time.

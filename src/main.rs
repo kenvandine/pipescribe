@@ -20,9 +20,10 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::thread;
 
-mod audio_utils;
-mod pipewire_utils;
-mod whisper_processor;
+// Import from the library instead of local modules
+use scribe::WhisperProcessor;
+use scribe::WhisperSegment;
+use scribe::{audio_utils, pipewire_utils};
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
@@ -127,7 +128,7 @@ pub fn main() -> Result<(), pw::Error> {
 
     // Create channels for audio samples and transcription segments
     let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
-    let (segment_sender, segment_receiver) = mpsc::channel::<whisper_processor::WhisperSegment>();
+    let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
 
     let data = UserData {
         format: Default::default(),
@@ -154,7 +155,7 @@ pub fn main() -> Result<(), pw::Error> {
     });
 
     // Create and start the WhisperProcessor with the channel receiver
-    let processor = whisper_processor::WhisperProcessor::new(
+    let processor = WhisperProcessor::new(
         &opt.model,
         sample_receiver,
         ring_buffer_size,

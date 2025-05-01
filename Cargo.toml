@@ -7,6 +7,17 @@ edition = "2024"
 default = []
 cuda = ["whisper-rs/cuda"]
 
+# Define the library target
+[lib]
+name = "scribe"
+path = "src/lib.rs"
+
+# Define the binary targets
+[[bin]]
+name = "scribe"
+path = "src/main.rs"
+
+
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 crossbeam-channel = "0.5.15"
@@ -20,3 +31,4 @@ regex = "1.11.1"
 spa = "0.5.1"
 tempfile = "3.19.1"
 whisper-rs = {version = "0.14.2", features = ["log_backend"]}
+gtk4 = "0.6.0"
