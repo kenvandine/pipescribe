@@ -34,7 +34,15 @@ mkdir -p models
 
 (model download script [whisper.cpp](lifted from https://github.com/ggml-org/whisper.cpp/blob/master/models/download-ggml-model.sh)
 
-3. Build the project:
+3. Install prerequisites
+
+On Ubuntu 24.04 for example:
+
+```bash
+sudo apt-get install -y libpipewire-0.3-dev build-essential
+```
+
+4. Build the project:
 
 ```bash
 cargo build --release
