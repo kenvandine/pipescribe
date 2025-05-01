@@ -1,8 +1,8 @@
-# Scribe
+# Pipescribe
 
-[![Build and Test](https://github.com/mz2/scribe/actions/workflows/test.yaml/badge.svg)](https://github.com/mz2/scribe/actions/workflows/test.yaml)
+[![Build and Test](https://github.com/mz2/pipescribe/actions/workflows/test.yaml/badge.svg)](https://github.com/mz2/pipescribe/actions/workflows/test.yaml)
 
-Scribe is a real-time audio transcription tool that captures audio from PipeWire sources and transcribes it using the Whisper speech recognition model.
+Pipescribe is a real-time audio transcription tool that captures audio from PipeWire sources and transcribes it using the Whisper speech recognition model.
 
 ## Features
 
@@ -21,8 +21,8 @@ Scribe is a real-time audio transcription tool that captures audio from PipeWire
 1. Clone the repository:
    
 ```bash
-git clone https://github.com/mz2/scribe.git
-cd scribe
+git clone https://github.com/mz2/pipescribe.git
+cd pipescribe
 ```
 
 2. Download a Whisper model file:
@@ -45,25 +45,11 @@ cargo build --release
 Basic usage:
 
 ```bash
-scribe --buffer-seconds 5 --model ./models/ggml-medium.en.bin
+pipescribe --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ```
 
 ... or to test out a local build:
 
 ```bash
-cargo run --bin scribe -- --buffer-seconds 5 --model ./models/ggml-medium.en.bin
+cargo run --bin pipescribe -- --buffer-seconds 5 --model ./models/ggml-medium.en.bin
 ```
-
-## Tray Application
-
-Scribe also includes a GTK4-based system tray application that displays recently captured and transcribed segments in a graphical interface.
-
-### Usage
-
-To run the tray application:
-
-```bash
-cargo run --bin scribe-tray
-```
-
-This will launch a window displaying the most recent transcriptions in real-time.

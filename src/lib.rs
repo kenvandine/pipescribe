@@ -1,4 +1,4 @@
-// Library entry point for Scribe
+// Library entry point for pipescribe
 // Exports common modules used by both the CLI and tray application
 
 pub mod audio_utils;
