@@ -22,8 +22,10 @@ jobs:
         run: |
             sudo apt-get update
             sudo apt-get install -y gnupg software-properties-common
-            sudo mkdir -p /etc/apt/keyrings
-            curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | sudo tee /etc/apt/keyrings/cuda-archive-keyring.gpg > /dev/null
+            sudo apt-get install -y wget gnupg
+            wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+            sudo dpkg -i cuda-keyring_1.1-1_all.deb
+
             echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list
             sudo apt-get update
             sudo apt-get -y install cuda-toolkit-12-8
