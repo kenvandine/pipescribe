@@ -24,6 +24,7 @@ use log::{debug, info};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::thread;
 
 mod audio_utils;
@@ -32,7 +33,7 @@ mod whisper_processor;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
-    ring_producer: Caching<Arc<SharedRb<Heap<f32>>>, true, false>,
+    sample_sender: Sender<Vec<f32>>,
 }
 
 #[derive(Parser)]
@@ -130,13 +131,14 @@ pub fn main() -> Result<(), pw::Error> {
     // Assuming 16000Hz is the inference rate for Whisper
     let inference_rate = 16000;
     let ring_buffer_size = (inference_rate * opt.buffer_seconds) as usize;
-    let ring_buffer = SharedRb::new(ring_buffer_size);
 
-    let (producer, consumer) = ring_buffer.split();
+    // Create channels for audio samples and transcription segments
+    let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
+    let (segment_sender, segment_receiver) = mpsc::channel::<whisper_processor::WhisperSegment>();
 
     let data = UserData {
         format: Default::default(),
-        ring_producer: producer,
+        sample_sender: sample_sender.clone(),
     };
 
     let props = properties! {
@@ -144,8 +146,6 @@ pub fn main() -> Result<(), pw::Error> {
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "Music",
     };
-
-    let (segment_sender, segment_receiver) = mpsc::channel::<whisper_processor::WhisperSegment>();
 
     thread::spawn(move || {
         while let Ok(segment) = segment_receiver.recv() {
@@ -160,14 +160,14 @@ pub fn main() -> Result<(), pw::Error> {
         }
     });
 
-    // Create and start the WhisperProcessor
+    // Create and start the WhisperProcessor with the channel receiver
     let processor = whisper_processor::WhisperProcessor::new(
         &opt.model,
-        consumer,
+        sample_receiver,
         ring_buffer_size,
         opt.output_dir.clone(),
         opt.language.clone(),
-        segment_sender, // Add the sender channel
+        segment_sender,
     );
 
     let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
@@ -252,14 +252,9 @@ pub fn main() -> Result<(), pw::Error> {
                         float_samples.to_vec()
                     };
 
-                    // Add the new samples to the ring buffer
-                    for &sample in mono_samples.iter() {
-                        let _ = user_data.ring_producer.try_push(sample);
-                    }
-
-                    let mut max: f32 = 0.0;
-                    for &sample in mono_samples.iter() {
-                        max = max.max(sample.abs());
+                    // Send the entire chunk of samples at once instead of individually
+                    if let Err(e) = user_data.sample_sender.send(mono_samples) {
+                        debug!("Failed to send audio samples: {}", e);
                     }
                 }
             }

@@ -7,7 +7,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
+        mpsc::{Receiver, Sender},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -29,17 +29,14 @@ pub struct WhisperProcessor {
 }
 
 impl WhisperProcessor {
-    pub fn new<T>(
+    pub fn new(
         model_path: &str,
-        consumer: T,
-        ring_buffer_size: usize,
+        sample_receiver: Receiver<Vec<f32>>,
+        buffer_size: usize,
         output_dir: Option<PathBuf>,
         language: Option<String>,
         segment_sender: Sender<WhisperSegment>,
-    ) -> Self
-    where
-        T: Consumer + Observer<Item = f32> + Send + 'static,
-    {
+    ) -> Self {
         whisper_rs::install_logging_hooks();
 
         let context_params = WhisperContextParameters::default();
@@ -83,33 +80,43 @@ impl WhisperProcessor {
         inference_params.set_print_timestamps(false);
         inference_params.set_token_timestamps(true);
 
-        let inference_rate = 16000;
-
-        // Create processing thread that consumes from the ring buffer
+        // Create processing thread that consumes from the channel
         let thread_handle = Some(thread::spawn(move || {
             let mut state = state;
-            let mut consumer = consumer;
+            let mut buffer_samples: Vec<f32> = Vec::with_capacity(buffer_size);
 
             while running_clone.load(Ordering::SeqCst) {
-                let available_samples = consumer.occupied_len();
-
-                // Only process if we have enough samples
-                // (at least 1 second of audio needed by whisper, but we can process more)
-                if available_samples >= ring_buffer_size as usize {
-                    // Set processing flag to provide backpressure
-                    processing_clone.store(true, Ordering::SeqCst);
-
-                    let batch_size = usize::min(available_samples, inference_rate as usize);
-                    let mut buffer_samples: Vec<f32> = Vec::with_capacity(batch_size);
-
-                    for _ in 0..available_samples {
-                        if let Some(sample) = consumer.try_pop() {
-                            buffer_samples.push(sample);
-                        } else {
-                            error!("Failed to pop sample from ring buffer");
-                            break; // Should not happen, but just in case
+                // Collect samples until we have enough for processing
+                while buffer_samples.len() < buffer_size {
+                    match sample_receiver.recv_timeout(Duration::from_millis(100)) {
+                        Ok(samples) => {
+                            // Add the entire chunk of samples to our buffer
+                            buffer_samples.extend_from_slice(&samples);
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            // Check if we should continue running
+                            if !running_clone.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            continue;
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            // Channel is closed, exit the thread
+                            debug!("Audio sample channel disconnected");
+                            return;
                         }
                     }
+                }
+
+                // If we don't have enough samples and thread is stopping, exit
+                if buffer_samples.len() < buffer_size && !running_clone.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                // Only process if we have enough samples
+                if buffer_samples.len() >= buffer_size {
+                    // Set processing flag to provide backpressure
+                    processing_clone.store(true, Ordering::SeqCst);
 
                     debug!(
                         "Running inference on {} accumulated samples",
@@ -147,8 +154,13 @@ impl WhisperProcessor {
                         *finished = true;
                         cvar.notify_all();
 
+                        // Clear buffer and continue
+                        buffer_samples.clear();
                         continue;
                     }
+
+                    // Clear buffer for next batch after processing
+                    buffer_samples.clear();
 
                     let num_segments = match state.full_n_segments() {
                         Ok(n) => n,
@@ -211,10 +223,6 @@ impl WhisperProcessor {
                     let mut finished = lock.lock().unwrap();
                     *finished = true;
                     cvar.notify_all();
-                } else {
-                    // Sleep longer when we don't have enough samples
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
                 }
             }
         }));
@@ -269,11 +277,7 @@ mod tests {
     use crate::audio_utils;
     use env_logger;
     use log::LevelFilter;
-    use ringbuf::SharedRb;
-    use ringbuf::storage::Heap;
-    use ringbuf::traits::{Producer, Split};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -286,10 +290,8 @@ mod tests {
 
         println!("Starting test_whisper_processor_with_jfk_speech");
 
-        // Set up the ring buffer - medium size to not overwhelm memory
-        let ring_buffer_size = 48000; // 3 seconds at 16kHz
-        let ring_buffer = SharedRb::<Heap<f32>>::new(ring_buffer_size);
-        let (mut producer, consumer) = ring_buffer.split();
+        // Set up channel for audio samples (now sending Vec<f32> instead of individual f32)
+        let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
 
         // Load test audio file
         let wav_path = Path::new("fixtures/jfk_berlin_address_high_f32le.wav");
@@ -308,15 +310,19 @@ mod tests {
         );
         println!("Preprocessed to {} samples at 16kHz", samples.len());
 
-        // Track received segments with atomic flag - simple synchronization
-        let received_segment = Arc::new(AtomicBool::new(false));
-        let received_segment_clone = received_segment.clone();
+        // Define expected segments
+        let expected_segments = vec![
+            "who for so many years has",
+            "committed Germany to democracy.",
+            "and freedom and",
+        ];
+
+        // Track received segments with a mutex-protected Vec
+        let received_segments = Arc::new(Mutex::new(Vec::new()));
+        let received_segments_clone = received_segments.clone();
 
         // Create channel for segments
         let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
-        // Create a vector to store received segments
-        // let segments_received = Arc::new(Mutex::new(Vec::new()));
-        // let segments_clone = segments_received.clone();
 
         // Start thread to receive and track segments
         thread::spawn(move || {
@@ -326,34 +332,17 @@ mod tests {
                     segment.start_timestamp, segment.end_timestamp, segment.text
                 );
 
-                // Store the segment
-                // segments_clone.lock().unwrap().push(segment.clone());
-
-                // Set flag that we've received a segment
-                received_segment_clone.store(true, Ordering::SeqCst);
+                // Store the received segment
+                let mut segments = received_segments_clone.lock().unwrap();
+                segments.push(segment.text.clone());
             }
         });
-
-        // Later in the test, after processor.stop(), add:
-        // let segments = segments_received.lock().unwrap();
-        // assert!(!segments.is_empty(), "No segments were received");
-
-        // Check for expected content
-        /*
-        let all_content = segments
-            .iter()
-            .map(|seg| seg.text.clone())
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        println!("All segments received: {}", all_content);
-        */
 
         // Create processor - use small threshold to process data quickly
         println!("Creating whisper processor");
         let processor = WhisperProcessor::new(
-            "models/ggml-base.en.bin",
-            consumer,
+            "models/ggml-medium.en.bin",
+            sample_receiver,
             16000, // Process after 1 second of audio
             None,
             Some("en".to_string()),
@@ -362,39 +351,61 @@ mod tests {
 
         let sample_limit = std::cmp::min(samples.len(), 16000 * 10); // 10 seconds of audio
 
-        for i in 0..sample_limit {
-            let mut retries = 0;
-            while producer.try_push(samples[i]).is_err() {
-                if retries >= 3 {
-                    println!("Buffer full after {} retries, skipping sample", retries);
-                    break;
-                }
-                retries += 1;
-                thread::sleep(Duration::from_millis(50));
+        // Send samples through the channel in chunks instead of individually
+        println!("Sending {} samples to processor", sample_limit);
+
+        const CHUNK_SIZE: usize = 64000;
+        for chunk_start in (0..sample_limit).step_by(CHUNK_SIZE) {
+            let chunk_end = std::cmp::min(chunk_start + CHUNK_SIZE, sample_limit);
+            let chunk = samples[chunk_start..chunk_end].to_vec();
+
+            if let Err(e) = sample_sender.send(chunk) {
+                println!("Failed to send sample chunk: {}", e);
+                break;
             }
         }
 
         let start_time = Instant::now();
-        let max_wait = Duration::from_secs(15);
+        let max_wait = Duration::from_secs(30); // Longer timeout to allow processing
 
-        while !received_segment.load(Ordering::SeqCst) {
-            if start_time.elapsed() > max_wait {
-                println!(
-                    "Test timed out after {:?} without receiving segments",
-                    max_wait
-                );
-                break;
+        // Function to check if all expected segments have been received
+        let all_segments_received = |received: &[String]| -> bool {
+            expected_segments
+                .iter()
+                .all(|expected| received.iter().any(|received| received.contains(expected)))
+        };
+
+        // Wait for all expected segments or timeout
+        let mut success = false;
+        while start_time.elapsed() < max_wait {
+            {
+                let segments = received_segments.lock().unwrap();
+                if all_segments_received(&segments) {
+                    success = true;
+                    break;
+                }
             }
             thread::sleep(Duration::from_millis(100));
         }
 
         processor.stop();
 
-        if received_segment.load(Ordering::SeqCst) {
+        // Print summary of received segments
+        let final_segments = received_segments.lock().unwrap();
+        println!("Received {} segments total:", final_segments.len());
+        for (i, seg) in final_segments.iter().enumerate() {
+            println!("  {}. {}", i + 1, seg);
+        }
+
+        if success {
             assert!(true);
         } else {
-            println!("Test failed - no segments received");
-            assert!(false, "No segments were received from the WhisperProcessor");
+            println!("Test failed - not all expected segments were received");
+            println!("Expected to receive segments containing:");
+            for expected in &expected_segments {
+                println!("  - {}", expected);
+            }
+            assert!(false, "Not all expected segments were received");
         }
     }
 }
