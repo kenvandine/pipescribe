@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libssl-dev pkg-config libpipewire-0.3-dev build-essential
+          sudo apt-get install -y libasound2-dev libssl-dev pkg-config libpipewire-0.3-dev libgtk-4-dev build-essential
 
       # - name: Set up CUDA Toolkit
       #  run: |
@@ -77,4 +77,4 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --features cuda -- -D warnings
+          args: -- -D warnings
