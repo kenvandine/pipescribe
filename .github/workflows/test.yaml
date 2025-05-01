@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+          sudo apt-get install -y libasound2-dev libssl-dev pkg-config libpipewire-0.3-dev
 
       - name: Cache Rust dependencies
         uses: actions/cache@v3
