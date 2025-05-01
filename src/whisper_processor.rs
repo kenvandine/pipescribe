@@ -309,7 +309,8 @@ mod tests {
         let expected_segments = vec![
             "who for so many years",
             "committed Germany to democracy.",
-            "And freedom man.", // the tiny model variant makes this, funny, mistake.
+            "and freedom and progress.",
+            "and to come here in the company.", // the tiny model variant makes more mistakes.
         ];
 
         let received_segments = Arc::new(Mutex::new(Vec::new()));
@@ -341,7 +342,7 @@ mod tests {
             segment_sender,
         );
 
-        let sample_limit = std::cmp::min(samples.len(), 16000 * 10); // 10 seconds of audio
+        let sample_limit = std::cmp::min(samples.len(), 16000 * 15); // 15 seconds of audio
 
         // Send samples through the channel in chunks instead of individually
         println!("Sending {} samples to processor", sample_limit);
@@ -358,7 +359,7 @@ mod tests {
         }
 
         let start_time = Instant::now();
-        let max_wait = Duration::from_secs(10); // Longer timeout to allow processing
+        let max_wait = Duration::from_secs(20); // Longer timeout to allow processing
 
         let all_segments_received = |received: &[String]| -> bool {
             expected_segments
