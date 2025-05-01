@@ -3,6 +3,10 @@ name = "scribe"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+cuda = ["whisper-rs/cuda"]
+
 [dependencies]
 clap = { version = "4.5.37", features = ["derive"] }
 crossbeam-channel = "0.5.15"
@@ -15,4 +19,4 @@ pipewire-sys = "0.8.0"
 regex = "1.11.1"
 spa = "0.5.1"
 tempfile = "3.19.1"
-whisper-rs = {version = "0.14.2", features = ["cuda", "log_backend"]}
+whisper-rs = {version = "0.14.2", features = ["log_backend"]}
