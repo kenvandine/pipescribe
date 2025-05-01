@@ -277,12 +277,11 @@ mod tests {
     use crate::audio_utils;
     use env_logger;
     use log::LevelFilter;
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
     #[test]
     fn test_whisper_processor_with_jfk_speech() {
-        // Set up basic logging
         let _ = env_logger::builder()
             .filter_level(LevelFilter::Info)
             .is_test(true)
@@ -290,17 +289,14 @@ mod tests {
 
         println!("Starting test_whisper_processor_with_jfk_speech");
 
-        // Set up channel for audio samples (now sending Vec<f32> instead of individual f32)
         let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
 
-        // Load test audio file
         let wav_path = Path::new("fixtures/jfk_berlin_address_high_f32le.wav");
         let reader = hound::WavReader::open(wav_path).expect("Could not open test WAV file");
         let spec = reader.spec();
-        println!("Test file specs: {:?}", spec);
 
         let raw_samples: Vec<f32> = reader.into_samples().filter_map(Result::ok).collect();
-        println!("Loaded {} raw samples from file", raw_samples.len());
+        debug!("Loaded {} raw samples from file", raw_samples.len());
 
         let samples = audio_utils::preprocess_for_whisper(
             &raw_samples,
@@ -308,7 +304,7 @@ mod tests {
             spec.sample_rate,
             16000,
         );
-        println!("Preprocessed to {} samples at 16kHz", samples.len());
+        debug!("Preprocessed to {} samples at 16kHz", samples.len());
 
         // Define expected segments
         let expected_segments = vec![
@@ -317,11 +313,9 @@ mod tests {
             "and freedom and",
         ];
 
-        // Track received segments with a mutex-protected Vec
         let received_segments = Arc::new(Mutex::new(Vec::new()));
         let received_segments_clone = received_segments.clone();
 
-        // Create channel for segments
         let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
 
         // Start thread to receive and track segments
@@ -332,13 +326,11 @@ mod tests {
                     segment.start_timestamp, segment.end_timestamp, segment.text
                 );
 
-                // Store the received segment
                 let mut segments = received_segments_clone.lock().unwrap();
                 segments.push(segment.text.clone());
             }
         });
 
-        // Create processor - use small threshold to process data quickly
         println!("Creating whisper processor");
         let processor = WhisperProcessor::new(
             "models/ggml-medium.en.bin",
@@ -368,7 +360,6 @@ mod tests {
         let start_time = Instant::now();
         let max_wait = Duration::from_secs(30); // Longer timeout to allow processing
 
-        // Function to check if all expected segments have been received
         let all_segments_received = |received: &[String]| -> bool {
             expected_segments
                 .iter()
@@ -390,7 +381,6 @@ mod tests {
 
         processor.stop();
 
-        // Print summary of received segments
         let final_segments = received_segments.lock().unwrap();
         println!("Received {} segments total:", final_segments.len());
         for (i, seg) in final_segments.iter().enumerate() {
