@@ -12,6 +12,14 @@ pub struct TranscriptionSegment {
     pub end_timestamp: f64,
 }
 
+// New struct to represent PipeWire applications with all fields
+#[derive(Clone, Debug)]
+pub struct PipewireApp {
+    pub id: u32,
+    pub name: String,
+    pub media_class: String,
+}
+
 #[frb(init)]
 pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
@@ -25,10 +33,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[tokio::main]
-pub async fn pipewire_applications() -> Vec<String> {
+pub async fn pipewire_applications() -> Vec<PipewireApp> {
     let applications = pipescribe::pipewire_utils::list_pipewire_applications();
-    let app_names: Vec<String> = applications.iter().map(|app| app.name.clone()).collect();
-    app_names
+    applications
+        .iter()
+        .map(|app| PipewireApp {
+            id: app.id,
+            name: app.name.clone(),
+            media_class: app.media_class.clone(),
+        })
+        .collect()
 }
 
 #[tokio::main]

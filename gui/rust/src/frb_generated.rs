@@ -524,13 +524,15 @@ impl SseDecode for isize {
     }
 }
 
-impl SseDecode for Vec<String> {
+impl SseDecode for Vec<crate::transcribe::transcribe::PipewireApp> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<String>::sse_decode(deserializer));
+            ans_.push(<crate::transcribe::transcribe::PipewireApp>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -556,6 +558,20 @@ impl SseDecode for Option<String> {
         } else {
             return None;
         }
+    }
+}
+
+impl SseDecode for crate::transcribe::transcribe::PipewireApp {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <u32>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_mediaClass = <String>::sse_decode(deserializer);
+        return crate::transcribe::transcribe::PipewireApp {
+            id: var_id,
+            name: var_name,
+            media_class: var_mediaClass,
+        };
     }
 }
 
@@ -663,6 +679,29 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<TranscriptionSegment>> for Tra
     }
 }
 
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::transcribe::transcribe::PipewireApp {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+            self.media_class.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::transcribe::transcribe::PipewireApp
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::transcribe::transcribe::PipewireApp>
+    for crate::transcribe::transcribe::PipewireApp
+{
+    fn into_into_dart(self) -> crate::transcribe::transcribe::PipewireApp {
+        self
+    }
+}
+
 impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -724,12 +763,12 @@ impl SseEncode for isize {
     }
 }
 
-impl SseEncode for Vec<String> {
+impl SseEncode for Vec<crate::transcribe::transcribe::PipewireApp> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <String>::sse_encode(item, serializer);
+            <crate::transcribe::transcribe::PipewireApp>::sse_encode(item, serializer);
         }
     }
 }
@@ -751,6 +790,15 @@ impl SseEncode for Option<String> {
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::transcribe::transcribe::PipewireApp {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.media_class, serializer);
     }
 }
 

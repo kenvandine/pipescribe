@@ -102,7 +102,7 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateTranscribeTranscribeInitApp();
 
-  Future<List<String>> crateTranscribeTranscribePipewireApplications();
+  Future<List<PipewireApp>> crateTranscribeTranscribePipewireApplications();
 
   Future<void> crateTranscribeTranscribeStartTranscribing(
       {required String modelPath,
@@ -330,7 +330,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<String>> crateTranscribeTranscribePipewireApplications() {
+  Future<List<PipewireApp>> crateTranscribeTranscribePipewireApplications() {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -338,7 +338,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             funcId: 8, port: port_);
       },
       codec: SseCodec(
-        decodeSuccessData: sse_decode_list_String,
+        decodeSuccessData: sse_decode_list_pipewire_app,
         decodeErrorData: null,
       ),
       constMeta: kCrateTranscribeTranscribePipewireApplicationsConstMeta,
@@ -518,9 +518,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<String> dco_decode_list_String(dynamic raw) {
+  List<PipewireApp> dco_decode_list_pipewire_app(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return (raw as List<dynamic>).map(dco_decode_String).toList();
+    return (raw as List<dynamic>).map(dco_decode_pipewire_app).toList();
   }
 
   @protected
@@ -533,6 +533,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  PipewireApp dco_decode_pipewire_app(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return PipewireApp(
+      id: dco_decode_u_32(arr[0]),
+      name: dco_decode_String(arr[1]),
+      mediaClass: dco_decode_String(arr[2]),
+    );
   }
 
   @protected
@@ -629,13 +642,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  List<String> sse_decode_list_String(SseDeserializer deserializer) {
+  List<PipewireApp> sse_decode_list_pipewire_app(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     var len_ = sse_decode_i_32(deserializer);
-    var ans_ = <String>[];
+    var ans_ = <PipewireApp>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
-      ans_.add(sse_decode_String(deserializer));
+      ans_.add(sse_decode_pipewire_app(deserializer));
     }
     return ans_;
   }
@@ -656,6 +669,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  PipewireApp sse_decode_pipewire_app(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_u_32(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_mediaClass = sse_decode_String(deserializer);
+    return PipewireApp(id: var_id, name: var_name, mediaClass: var_mediaClass);
   }
 
   @protected
@@ -780,11 +802,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_list_String(List<String> self, SseSerializer serializer) {
+  void sse_encode_list_pipewire_app(
+      List<PipewireApp> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
-      sse_encode_String(item, serializer);
+      sse_encode_pipewire_app(item, serializer);
     }
   }
 
@@ -804,6 +827,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_String(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_pipewire_app(PipewireApp self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.id, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.mediaClass, serializer);
   }
 
   @protected

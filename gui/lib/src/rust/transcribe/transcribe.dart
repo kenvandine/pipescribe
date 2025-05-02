@@ -6,9 +6,9 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
 
-Future<List<String>> pipewireApplications() =>
+Future<List<PipewireApp>> pipewireApplications() =>
     RustLib.instance.api.crateTranscribeTranscribePipewireApplications();
 
 Future<void> startTranscribing(
@@ -40,4 +40,28 @@ abstract class TranscriptionSegment implements RustOpaqueInterface {
   set startTimestamp(double startTimestamp);
 
   set text(String text);
+}
+
+class PipewireApp {
+  final int id;
+  final String name;
+  final String mediaClass;
+
+  const PipewireApp({
+    required this.id,
+    required this.name,
+    required this.mediaClass,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode ^ mediaClass.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PipewireApp &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          mediaClass == other.mediaClass;
 }

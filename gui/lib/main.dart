@@ -11,9 +11,12 @@ final GlobalKey<_TranscriptionScreenState> transcriptionKey =
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
+
+  // The apps will be loaded later, so start with ID 0 initially
+  // You might want to wait for app loading before starting transcription
   startTranscribing(
       modelPath: "../models/ggml-medium.en.bin",
-      target: "0",
+      target: "0", // Default input
       bufferSeconds: 5,
       segmentCallback: (segment) {
         // Update UI with the new segment
@@ -73,6 +76,32 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
   String _currentSegment = '';
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  List<PipewireApp> _pipewireApps = [];
+  String? _selectedApp;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPipewireApps();
+  }
+
+  Future<void> _loadPipewireApps() async {
+    try {
+      final apps = await pipewireApplications();
+      setState(() {
+        // Add a default option at the beginning of the list
+        _pipewireApps = [
+          const PipewireApp(
+              id: 0, name: "Default Input Device", mediaClass: "Audio/Source"),
+          ...apps
+        ];
+        // Set initial selection to the default input
+        _selectedApp = "0";
+      });
+    } catch (e) {
+      print('Failed to load Pipewire applications: $e');
+    }
+  }
 
   @override
   void dispose() {
@@ -83,8 +112,10 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
 
   bool _isSilentText(String text) {
     return text.endsWith("[BLANK AUDIO]") ||
+        text.endsWith("[BLANK_AUDIO]") ||
         text == " ." ||
         text.endsWith("[typing sounds]") ||
+        text.endsWith("[typing]") ||
         text.endsWith("[TYPING]") ||
         text.endsWith("[BREATHING]") ||
         text.endsWith("(keyboard clicking)");
@@ -174,8 +205,49 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
           autofocus: true,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('Live transcript'),
+              title: Text(
+                'Live transcribe',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).textTheme.bodyMedium?.color,
+                ),
+              ),
               actions: [
+                // Pipewire application dropdown
+                DropdownButton<PipewireApp>(
+                  value: _pipewireApps.isNotEmpty
+                      ? _pipewireApps.firstWhere(
+                          (app) => app.id.toString() == _selectedApp,
+                          orElse: () => _pipewireApps.first,
+                        )
+                      : null,
+                  icon: const Icon(Icons.arrow_drop_down),
+                  underline: Container(), // Remove underline
+                  onChanged: (PipewireApp? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        _selectedApp = newValue.id.toString();
+                      });
+                      // Optional: restart transcription with the new target ID
+                      // This would require modifying how transcription is started
+                    }
+                  },
+                  items:
+                      _pipewireApps.map<DropdownMenuItem<PipewireApp>>((app) {
+                    return DropdownMenuItem<PipewireApp>(
+                      value: app,
+                      child: Text(
+                        app.name,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).textTheme.bodyMedium?.color,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  hint: const Text('Select app'),
+                ),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.copy),
                   tooltip: 'Copy to clipboard',
