@@ -34,5 +34,5 @@ pipewire-sys = "0.8.0"
 regex = "1.11.1"
 spa = "0.5.1"
 tempfile = "3.19.1"
-tokio = { version="1.44.2", features=["rt-multi-thread", "sync", "macros"] }
+tokio = { version="1.44.2", features=["rt-multi-thread", "sync", "macros", "time"] }
 whisper-rs = { git = "https://git@github.com/mz2/whisper-rs.git", branch = "fpic-fix", features = ["log_backend"] }
