@@ -3,6 +3,8 @@ import 'package:pipescribe/src/rust/transcribe/transcribe.dart';
 import 'package:pipescribe/src/rust/frb_generated.dart';
 import 'package:yaru/yaru.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 // Global key to access the TranscriptionScreen state
 final GlobalKey<_TranscriptionScreenState> transcriptionKey =
@@ -78,6 +80,7 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
   final ScrollController _scrollController = ScrollController();
   List<PipewireApp> _pipewireApps = [];
   String? _selectedApp;
+  bool _isGeneratingSummary = false;
 
   @override
   void initState() {
@@ -180,6 +183,163 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
 
   bool get _hasContent => _segments.isNotEmpty || _currentSegment.isNotEmpty;
 
+  // Get all transcription text formatted
+  String _getTranscriptionText() {
+    final List<String> textSegments = [];
+
+    // Add all non-silence segments
+    for (var segment in _segments) {
+      if (!segment.isSilence) {
+        textSegments.add(segment.text);
+      }
+    }
+
+    // Add current segment if not empty
+    if (_currentSegment.isNotEmpty) {
+      textSegments.add(_currentSegment.trim());
+    }
+
+    return textSegments.join('\n\n');
+  }
+
+  // Call Ollama API to generate summary
+  Future<String> _generateSummary() async {
+    final text = _getTranscriptionText();
+    if (text.isEmpty) {
+      return "No content to summarize";
+    }
+
+    setState(() {
+      _isGeneratingSummary = true;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:11434/api/generate'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'model': 'llama3',
+          'prompt': 'Summarize this text concisely:\n\n$text',
+          'stream': false,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        return responseData['response'] ?? "Error generating summary";
+      } else {
+        print(
+            'Error from Ollama API: ${response.statusCode}, ${response.body}');
+        return "Error: Server returned status code ${response.statusCode}";
+      }
+    } catch (e) {
+      print('Exception calling Ollama API: $e');
+      return "Error connecting to Ollama: $e";
+    } finally {
+      // Ensure state is reset whether the request succeeds or fails
+      if (mounted) {
+        setState(() {
+          _isGeneratingSummary = false;
+        });
+      }
+    }
+  }
+
+  // Show summary dialog
+  Future<void> _showSummary() async {
+    if (!_hasContent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No content to summarize'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Show loading dialog
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text("Generating summary..."),
+                ],
+              ),
+            );
+          },
+        );
+      }
+
+      // Generate summary
+      final summary = await _generateSummary();
+
+      // Close loading dialog - only if state is still mounted
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      // Show summary dialog
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Summary'),
+              content: SingleChildScrollView(
+                child: Text(summary),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: summary));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Summary copied to clipboard'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  child: const Text('Copy'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      }
+    } catch (e) {
+      print('Error in _showSummary: $e');
+      // Make sure loading dialog is closed in case of an error
+      if (mounted) {
+        Navigator.of(context).pop(); // Close the loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generating summary: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+      // Ensure state is reset even if there's an error
+      setState(() {
+        _isGeneratingSummary = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Shortcuts(
@@ -248,6 +408,14 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
                   hint: const Text('Select app'),
                 ),
                 const SizedBox(width: 8),
+                // Summary button
+                IconButton(
+                  icon: const Icon(Icons.summarize),
+                  tooltip: 'Generate summary',
+                  onPressed: _hasContent && !_isGeneratingSummary
+                      ? _showSummary
+                      : null,
+                ),
                 IconButton(
                   icon: const Icon(Icons.copy),
                   tooltip: 'Copy to clipboard',
