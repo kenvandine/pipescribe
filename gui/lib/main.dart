@@ -17,8 +17,9 @@ Future<void> main() async {
       bufferSeconds: 5,
       segmentCallback: (segment) {
         // Update UI with the new segment
+        print("Segment: '${segment.text}'");
+
         transcriptionKey.currentState?.updateTranscription(segment.text);
-        print("Segment: ${segment.text}");
       });
   runApp(const MyApp());
 }
@@ -52,6 +53,14 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// Define a class to represent different segment types
+class TranscriptionSegment {
+  final String text;
+  final bool isSilence;
+
+  TranscriptionSegment({required this.text, this.isSilence = false});
+}
+
 class TranscriptionScreen extends StatefulWidget {
   const TranscriptionScreen({super.key});
 
@@ -60,24 +69,75 @@ class TranscriptionScreen extends StatefulWidget {
 }
 
 class _TranscriptionScreenState extends State<TranscriptionScreen> {
-  String _transcription = '';
+  final List<TranscriptionSegment> _segments = [];
+  String _currentSegment = '';
   final FocusNode _focusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  void updateTranscription(String segment) {
+  bool _isSilentText(String text) {
+    return text.endsWith("[BLANK AUDIO]") ||
+        text == " ." ||
+        text.endsWith("[typing sounds]") ||
+        text.endsWith("[TYPING]") ||
+        text.endsWith("[BREATHING]") ||
+        text.endsWith("(keyboard clicking)");
+  }
+
+  void updateTranscription(String text) {
     setState(() {
-      _transcription += ' $segment';
+      if (_isSilentText(text)) {
+        // If we have content in current segment, add it to segments
+        if (_currentSegment.isNotEmpty) {
+          _segments.add(TranscriptionSegment(text: _currentSegment.trim()));
+          _currentSegment = '';
+        }
+        // Add silence marker if needed
+        if (_segments.isEmpty || !_segments.last.isSilence) {
+          _segments.add(TranscriptionSegment(text: '', isSilence: true));
+        }
+      } else {
+        _currentSegment += ' $text';
+      }
+    });
+
+    // Scroll to bottom after update
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
   void _copyToClipboard() {
-    if (_transcription.isNotEmpty) {
-      Clipboard.setData(ClipboardData(text: _transcription));
+    final List<String> textSegments = [];
+
+    // Add all non-silence segments
+    for (var segment in _segments) {
+      if (!segment.isSilence) {
+        textSegments.add(segment.text);
+      }
+    }
+
+    // Add current segment if not empty
+    if (_currentSegment.isNotEmpty) {
+      textSegments.add(_currentSegment.trim());
+    }
+
+    if (textSegments.isNotEmpty) {
+      final formattedText =
+          textSegments.join('\n\n'); // Add spacing between segments
+      Clipboard.setData(ClipboardData(text: formattedText));
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Transcript copied to clipboard'),
@@ -86,6 +146,8 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
       );
     }
   }
+
+  bool get _hasContent => _segments.isNotEmpty || _currentSegment.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +162,7 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
         actions: <Type, Action<Intent>>{
           CopyIntent: CallbackAction<CopyIntent>(
             onInvoke: (CopyIntent intent) {
-              if (_transcription.isNotEmpty) {
+              if (_hasContent) {
                 _copyToClipboard();
               }
               return null;
@@ -117,7 +179,7 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
                 IconButton(
                   icon: const Icon(Icons.copy),
                   tooltip: 'Copy to clipboard',
-                  onPressed: _transcription.isEmpty ? null : _copyToClipboard,
+                  onPressed: _hasContent ? _copyToClipboard : null,
                 ),
               ],
             ),
@@ -128,14 +190,52 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
                 children: [
                   const SizedBox(height: 8),
                   Expanded(
-                    child: SingleChildScrollView(
-                      child: Text(
-                        _transcription.isEmpty
-                            ? 'Waiting for speech...'
-                            : _transcription,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                    ),
+                    child: _hasContent
+                        ? ListView.builder(
+                            controller: _scrollController,
+                            itemCount: _segments.length +
+                                (_currentSegment.isNotEmpty ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index < _segments.length) {
+                                final segment = _segments[index];
+                                if (segment.isSilence) {
+                                  return const Padding(
+                                    padding:
+                                        EdgeInsets.symmetric(vertical: 8.0),
+                                    child: Divider(height: 1),
+                                  );
+                                } else {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 8.0),
+                                    child: Text(
+                                      segment.text,
+                                      style: const TextStyle(fontSize: 16),
+                                    ),
+                                  );
+                                }
+                              } else {
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8.0),
+                                  child: Text(
+                                    _currentSegment.trim(),
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                );
+                              }
+                            },
+                          )
+                        : const Center(
+                            child: Text(
+                              'Waiting for speech...',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
                   ),
                 ],
               ),

@@ -1,5 +1,5 @@
 use env_logger;
-use flutter_rust_bridge::{frb, DartFnFuture};
+use flutter_rust_bridge::{DartFnFuture, frb};
 use pipescribe::transcriber::transcribe;
 
 use log::{error, info};
@@ -23,6 +23,13 @@ pub fn init_app() {
 use std::path::PathBuf;
 
 use std::sync::Arc;
+
+#[tokio::main]
+pub async fn pipewire_applications() -> Vec<String> {
+    let applications = pipescribe::pipewire_utils::list_pipewire_applications();
+    let app_names: Vec<String> = applications.iter().map(|app| app.name.clone()).collect();
+    app_names
+}
 
 #[tokio::main]
 pub async fn start_transcribing(
