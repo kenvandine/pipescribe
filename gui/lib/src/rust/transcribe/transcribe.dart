@@ -6,7 +6,6 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `TranscriptionSegment`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
 
 Future<void> startTranscribing(
@@ -14,10 +13,38 @@ Future<void> startTranscribing(
         required int bufferSeconds,
         String? target,
         String? outputDir,
-        String? language}) =>
+        String? language,
+        required FutureOr<void> Function(TranscriptionSegment)
+            segmentCallback}) =>
     RustLib.instance.api.crateTranscribeTranscribeStartTranscribing(
         modelPath: modelPath,
         bufferSeconds: bufferSeconds,
         target: target,
         outputDir: outputDir,
-        language: language);
+        language: language,
+        segmentCallback: segmentCallback);
+
+class TranscriptionSegment {
+  final String text;
+  final double startTimestamp;
+  final double endTimestamp;
+
+  const TranscriptionSegment({
+    required this.text,
+    required this.startTimestamp,
+    required this.endTimestamp,
+  });
+
+  @override
+  int get hashCode =>
+      text.hashCode ^ startTimestamp.hashCode ^ endTimestamp.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TranscriptionSegment &&
+          runtimeType == other.runtimeType &&
+          text == other.text &&
+          startTimestamp == other.startTimestamp &&
+          endTimestamp == other.endTimestamp;
+}

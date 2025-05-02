@@ -24,7 +24,7 @@ pub fn transcribe(
     buffer_seconds: u32,
     output_dir: Option<PathBuf>,
     language: Option<String>,
-    target_id: u32,
+    target_id: u32, // FIXME: Make this handle multiple targets
 ) -> Result<(), pw::Error> {
     pipewire::init();
 

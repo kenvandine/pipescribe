@@ -1071,6 +1071,8 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 name = "rust_lib_pipescribe"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "env_logger 0.11.8",
  "flutter_rust_bridge",
  "log",
  "pipescribe",
@@ -1420,8 +1422,7 @@ dependencies = [
 [[package]]
 name = "whisper-rs"
 version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b6dca51a101d32fa551d66d34fef899a39d5c8b68b6ea5adf4080b9ec37bb58"
+source = "git+https://git@github.com/mz2/whisper-rs.git?branch=fpic-fix#2a72c74a82ecac2ed891d3abc585d8c0a7b739a3"
 dependencies = [
  "log",
  "whisper-rs-sys",
@@ -1430,8 +1431,7 @@ dependencies = [
 [[package]]
 name = "whisper-rs-sys"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c6b8157262ff9e4239549db921ed40ba758e03f565893d4e700380286c643b"
+source = "git+https://git@github.com/mz2/whisper-rs.git?branch=fpic-fix#2a72c74a82ecac2ed891d3abc585d8c0a7b739a3"
 dependencies = [
  "bindgen 0.71.1",
  "cfg-if",

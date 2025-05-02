@@ -7,9 +7,11 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+anyhow = "1.0.98"
+env_logger = "0.11.8"
 flutter_rust_bridge = "=2.9.0"
 log = "0.4.27"
-pipescribe = { path = "../../" }
+pipescribe = { path = "../../", features=["cuda"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
