@@ -209,11 +209,13 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
       return "No content to summarize";
     }
 
-    setState(() {
-      _isGeneratingSummary = true;
-    });
+    // Don't set state here - we already did in _showSummary
+    // The loading indicator is already visible
 
     try {
+      // Add artificial delay to ensure progress dialog is visible
+      await Future.delayed(const Duration(milliseconds: 500));
+
       final response = await http.post(
         Uri.parse('http://localhost:11434/api/generate'),
         headers: {'Content-Type': 'application/json'},
@@ -236,12 +238,7 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
       print('Exception calling Ollama API: $e');
       return "Error connecting to Ollama: $e";
     } finally {
-      // Ensure state is reset whether the request succeeds or fails
-      if (mounted) {
-        setState(() {
-          _isGeneratingSummary = false;
-        });
-      }
+      // Handled by _showSummary now
     }
   }
 
@@ -258,35 +255,62 @@ class _TranscriptionScreenState extends State<TranscriptionScreen> {
     }
 
     try {
-      // Show loading dialog
-      if (context.mounted) {
-        showDialog(
+      // Show loading dialog - use a bigger, more visible dialog with a barrier
+      if (mounted) {
+        await showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (BuildContext context) {
-            return const AlertDialog(
-              content: Row(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(width: 20),
-                  Text("Generating summary..."),
-                ],
+          builder: (BuildContext dialogContext) {
+            return Dialog(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "Generating summary...",
+                      style: TextStyle(fontSize: 16),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      "This may take a few moments",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        setState(() {
+                          _isGeneratingSummary = false;
+                        });
+                      },
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
               ),
             );
           },
-        );
+        ).then((_) {
+          // Dialog was closed without being popped programmatically (user canceled)
+          if (_isGeneratingSummary) {
+            setState(() {
+              _isGeneratingSummary = false;
+            });
+          }
+          return null;
+        });
       }
 
-      // Generate summary
+      // Generate summary (moved after dialog display)
       final summary = await _generateSummary();
 
-      // Close loading dialog - only if state is still mounted
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-
       // Show summary dialog
-      if (context.mounted) {
+      if (mounted) {
         showDialog(
           context: context,
           builder: (BuildContext context) {
