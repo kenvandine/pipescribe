@@ -1,8 +1,8 @@
 use env_logger;
-use flutter_rust_bridge::{DartFnFuture, frb};
-use pipescribe::{WhisperSegment, transcriber::transcribe};
+use flutter_rust_bridge::{frb, DartFnFuture};
+use pipescribe::transcriber::transcribe;
 
-use log::info;
+use log::{error, info};
 
 #[derive(Clone, Debug)]
 #[frb(opaque)]
@@ -20,43 +20,55 @@ pub fn init_app() {
         .init();
 }
 
-use std::{path::PathBuf, process::exit};
+use std::path::PathBuf;
 
-#[frb]
+use std::sync::Arc;
+
+#[tokio::main]
 pub async fn start_transcribing(
     model_path: String,
     buffer_seconds: u32,
     target: Option<String>,
     output_dir: Option<String>,
     language: Option<String>,
-    segment_callback: impl Fn(WhisperSegment) -> DartFnFuture<()>,
+    segment_callback: impl Fn(TranscriptionSegment) -> DartFnFuture<()> + Send + Sync + 'static,
 ) -> Result<(), String> {
     let output_dir_path = output_dir.map(PathBuf::from);
+    let callback = Arc::new(segment_callback);
 
-    println!("Transcription starting");
-    let segment = TranscriptionSegment {
-        text: "Transcription completed".to_string(),
-        start_timestamp: 0.0,
-        end_timestamp: 0.0,
+    let ids = match pipescribe::transcriber::find_target_ids(target) {
+        Ok(ids) => ids,
+        Err(e) => return Err(e.to_string()),
     };
 
-    match pipescribe::transcriber::find_target_ids(target) {
-        Ok(ids) => match transcribe(
-            &model_path,
-            buffer_seconds,
-            output_dir_path,
-            language,
-            ids[0], // FIXME: Make this handle multiple targets
-            |segment| {
-                segment_callback(segment.to_owned()).await;
-            },
-        ) {
-            Ok(_) => {
-                info!("Transcription completed");
-                Ok(())
-            }
-            Err(e) => Err(e.to_string()),
+    let callback = Arc::clone(&callback);
+    match transcribe(
+        &model_path,
+        buffer_seconds,
+        output_dir_path,
+        language,
+        ids[0], // FIXME: Make this handle multiple targets
+        move |segment| {
+            let callback_clone = Arc::clone(&callback);
+            Box::pin(async move {
+                let text = segment.text.clone();
+                println!("{}", text);
+                callback_clone(TranscriptionSegment {
+                    text: text.clone(),
+                    start_timestamp: segment.start_timestamp as f64,
+                    end_timestamp: segment.end_timestamp as f64,
+                })
+                .await;
+            })
         },
-        Err(e) => Err(e.to_string()),
+    ) {
+        Ok(_) => {
+            info!("Transcription completed");
+            Ok(())
+        }
+        Err(e) => {
+            error!("Error during transcription: {}", e);
+            Err(e.to_string())
+        }
     }
 }

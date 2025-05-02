@@ -14,7 +14,8 @@ Future<void> startTranscribing(
         String? target,
         String? outputDir,
         String? language,
-        required FutureOr<void> Function(WhisperSegment) segmentCallback}) =>
+        required FutureOr<void> Function(TranscriptionSegment)
+            segmentCallback}) =>
     RustLib.instance.api.crateTranscribeTranscribeStartTranscribing(
         modelPath: modelPath,
         bufferSeconds: bufferSeconds,
@@ -37,6 +38,3 @@ abstract class TranscriptionSegment implements RustOpaqueInterface {
 
   set text(String text);
 }
-
-// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<WhisperSegment>>
-abstract class WhisperSegment implements RustOpaqueInterface {}
