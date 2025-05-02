@@ -1,8 +1,11 @@
 use env_logger;
-use flutter_rust_bridge::{frb, DartFnFuture};
-use pipescribe::transcriber::transcribe;
+use flutter_rust_bridge::{DartFnFuture, frb};
+use pipescribe::{WhisperSegment, transcriber::transcribe};
+
+use log::info;
 
 #[derive(Clone, Debug)]
+#[frb(opaque)]
 pub struct TranscriptionSegment {
     pub text: String,
     pub start_timestamp: f64,
@@ -17,18 +20,25 @@ pub fn init_app() {
         .init();
 }
 
-use std::path::PathBuf;
+use std::{path::PathBuf, process::exit};
 
 #[frb]
-pub fn start_transcribing(
+pub async fn start_transcribing(
     model_path: String,
     buffer_seconds: u32,
     target: Option<String>,
     output_dir: Option<String>,
     language: Option<String>,
-    segment_callback: impl Fn(TranscriptionSegment) -> DartFnFuture<()>,
+    segment_callback: impl Fn(WhisperSegment) -> DartFnFuture<()>,
 ) -> Result<(), String> {
     let output_dir_path = output_dir.map(PathBuf::from);
+
+    println!("Transcription starting");
+    let segment = TranscriptionSegment {
+        text: "Transcription completed".to_string(),
+        start_timestamp: 0.0,
+        end_timestamp: 0.0,
+    };
 
     match pipescribe::transcriber::find_target_ids(target) {
         Ok(ids) => match transcribe(
@@ -37,14 +47,12 @@ pub fn start_transcribing(
             output_dir_path,
             language,
             ids[0], // FIXME: Make this handle multiple targets
+            |segment| {
+                segment_callback(segment.to_owned()).await;
+            },
         ) {
             Ok(_) => {
-                let segment = TranscriptionSegment {
-                    text: "Transcription completed".to_string(),
-                    start_timestamp: 0.0,
-                    end_timestamp: 0.0,
-                };
-                segment_callback(segment);
+                info!("Transcription completed");
                 Ok(())
             }
             Err(e) => Err(e.to_string()),

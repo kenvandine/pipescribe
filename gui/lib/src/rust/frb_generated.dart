@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 1421466997;
+  int get rustContentHash => -350489434;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -79,6 +79,27 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  double
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetEndTimestamp(
+          {required TranscriptionSegment that});
+
+  double
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetStartTimestamp(
+          {required TranscriptionSegment that});
+
+  String crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetText(
+      {required TranscriptionSegment that});
+
+  void crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetEndTimestamp(
+      {required TranscriptionSegment that, required double endTimestamp});
+
+  void
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetStartTimestamp(
+          {required TranscriptionSegment that, required double startTimestamp});
+
+  void crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetText(
+      {required TranscriptionSegment that, required String text});
+
   Future<void> crateTranscribeTranscribeInitApp();
 
   Future<void> crateTranscribeTranscribeStartTranscribing(
@@ -87,7 +108,25 @@ abstract class RustLibApi extends BaseApi {
       String? target,
       String? outputDir,
       String? language,
-      required FutureOr<void> Function(TranscriptionSegment) segmentCallback});
+      required FutureOr<void> Function(WhisperSegment) segmentCallback});
+
+  RustArcIncrementStrongCountFnType
+      get rust_arc_increment_strong_count_TranscriptionSegment;
+
+  RustArcDecrementStrongCountFnType
+      get rust_arc_decrement_strong_count_TranscriptionSegment;
+
+  CrossPlatformFinalizerArg
+      get rust_arc_decrement_strong_count_TranscriptionSegmentPtr;
+
+  RustArcIncrementStrongCountFnType
+      get rust_arc_increment_strong_count_WhisperSegment;
+
+  RustArcDecrementStrongCountFnType
+      get rust_arc_decrement_strong_count_WhisperSegment;
+
+  CrossPlatformFinalizerArg
+      get rust_arc_decrement_strong_count_WhisperSegmentPtr;
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -99,12 +138,187 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  double
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetEndTimestamp(
+          {required TranscriptionSegment that}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_f_64,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetEndTimestampConstMeta,
+      argValues: [that],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetEndTimestampConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_get_end_timestamp",
+            argNames: ["that"],
+          );
+
+  @override
+  double
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetStartTimestamp(
+          {required TranscriptionSegment that}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_f_64,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetStartTimestampConstMeta,
+      argValues: [that],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetStartTimestampConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_get_start_timestamp",
+            argNames: ["that"],
+          );
+
+  @override
+  String crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetText(
+      {required TranscriptionSegment that}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetTextConstMeta,
+      argValues: [that],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetTextConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_get_text",
+            argNames: ["that"],
+          );
+
+  @override
+  void crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetEndTimestamp(
+      {required TranscriptionSegment that, required double endTimestamp}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        sse_encode_f_64(endTimestamp, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetEndTimestampConstMeta,
+      argValues: [that, endTimestamp],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetEndTimestampConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_set_end_timestamp",
+            argNames: ["that", "endTimestamp"],
+          );
+
+  @override
+  void
+      crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetStartTimestamp(
+          {required TranscriptionSegment that,
+          required double startTimestamp}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        sse_encode_f_64(startTimestamp, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetStartTimestampConstMeta,
+      argValues: [that, startTimestamp],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetStartTimestampConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_set_start_timestamp",
+            argNames: ["that", "startTimestamp"],
+          );
+
+  @override
+  void crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetText(
+      {required TranscriptionSegment that, required String text}) {
+    return handler.executeSync(SyncTask(
+      callFfi: () {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+            that, serializer);
+        sse_encode_String(text, serializer);
+        return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: null,
+      ),
+      constMeta:
+          kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetTextConstMeta,
+      argValues: [that, text],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetTextConstMeta =>
+          const TaskConstMeta(
+            debugName: "TranscriptionSegment_auto_accessor_set_text",
+            argNames: ["that", "text"],
+          );
+
+  @override
   Future<void> crateTranscribeTranscribeInitApp() {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 1, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -129,7 +343,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       String? target,
       String? outputDir,
       String? language,
-      required FutureOr<void> Function(TranscriptionSegment) segmentCallback}) {
+      required FutureOr<void> Function(WhisperSegment) segmentCallback}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -138,10 +352,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_opt_String(target, serializer);
         sse_encode_opt_String(outputDir, serializer);
         sse_encode_opt_String(language, serializer);
-        sse_encode_DartFn_Inputs_transcription_segment_Output_unit_AnyhowException(
+        sse_encode_DartFn_Inputs_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment_Output_unit_AnyhowException(
             segmentCallback, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 2, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -174,10 +388,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   Future<void> Function(int, dynamic)
-      encode_DartFn_Inputs_transcription_segment_Output_unit_AnyhowException(
-          FutureOr<void> Function(TranscriptionSegment) raw) {
+      encode_DartFn_Inputs_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment_Output_unit_AnyhowException(
+          FutureOr<void> Function(WhisperSegment) raw) {
     return (callId, rawArg0) async {
-      final arg0 = dco_decode_transcription_segment(rawArg0);
+      final arg0 =
+          dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+              rawArg0);
 
       Box<void>? rawOutput;
       Box<AnyhowException>? rawError;
@@ -206,6 +422,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     };
   }
 
+  RustArcIncrementStrongCountFnType
+      get rust_arc_increment_strong_count_TranscriptionSegment => wire
+          .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment;
+
+  RustArcDecrementStrongCountFnType
+      get rust_arc_decrement_strong_count_TranscriptionSegment => wire
+          .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment;
+
+  RustArcIncrementStrongCountFnType
+      get rust_arc_increment_strong_count_WhisperSegment => wire
+          .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment;
+
+  RustArcDecrementStrongCountFnType
+      get rust_arc_decrement_strong_count_WhisperSegment => wire
+          .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment;
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -213,8 +445,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  FutureOr<void> Function(TranscriptionSegment)
-      dco_decode_DartFn_Inputs_transcription_segment_Output_unit_AnyhowException(
+  TranscriptionSegment
+      dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  WhisperSegment
+      dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return WhisperSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  TranscriptionSegment
+      dco_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  TranscriptionSegment
+      dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  FutureOr<void> Function(WhisperSegment)
+      dco_decode_DartFn_Inputs_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment_Output_unit_AnyhowException(
           dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError('');
@@ -224,6 +488,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Object dco_decode_DartOpaque(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return decodeDartOpaque(raw, generalizedFrbRustBinding);
+  }
+
+  @protected
+  TranscriptionSegment
+      dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  WhisperSegment
+      dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return WhisperSegmentImpl.frbInternalDcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -254,19 +534,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
-  }
-
-  @protected
-  TranscriptionSegment dco_decode_transcription_segment(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
-    return TranscriptionSegment(
-      text: dco_decode_String(arr[0]),
-      startTimestamp: dco_decode_f_64(arr[1]),
-      endTimestamp: dco_decode_f_64(arr[2]),
-    );
   }
 
   @protected
@@ -301,10 +568,64 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TranscriptionSegment
+      sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  WhisperSegment
+      sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return WhisperSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  TranscriptionSegment
+      sse_decode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  TranscriptionSegment
+      sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
   Object sse_decode_DartOpaque(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_isize(deserializer);
     return decodeDartOpaque(inner, generalizedFrbRustBinding);
+  }
+
+  @protected
+  TranscriptionSegment
+      sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return TranscriptionSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
+  }
+
+  @protected
+  WhisperSegment
+      sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return WhisperSegmentImpl.frbInternalSseDecode(
+        sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
   }
 
   @protected
@@ -342,19 +663,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
-  }
-
-  @protected
-  TranscriptionSegment sse_decode_transcription_segment(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_text = sse_decode_String(deserializer);
-    var var_startTimestamp = sse_decode_f_64(deserializer);
-    var var_endTimestamp = sse_decode_f_64(deserializer);
-    return TranscriptionSegment(
-        text: var_text,
-        startTimestamp: var_startTimestamp,
-        endTimestamp: var_endTimestamp);
   }
 
   @protected
@@ -401,12 +709,52 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
-      sse_encode_DartFn_Inputs_transcription_segment_Output_unit_AnyhowException(
-          FutureOr<void> Function(TranscriptionSegment) self,
+      sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          TranscriptionSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as TranscriptionSegmentImpl).frbInternalSseEncode(move: true),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          WhisperSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as WhisperSegmentImpl).frbInternalSseEncode(move: true),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          TranscriptionSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as TranscriptionSegmentImpl).frbInternalSseEncode(move: false),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          TranscriptionSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as TranscriptionSegmentImpl).frbInternalSseEncode(move: false),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_DartFn_Inputs_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment_Output_unit_AnyhowException(
+          FutureOr<void> Function(WhisperSegment) self,
           SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_DartOpaque(
-        encode_DartFn_Inputs_transcription_segment_Output_unit_AnyhowException(
+        encode_DartFn_Inputs_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment_Output_unit_AnyhowException(
             self),
         serializer);
   }
@@ -417,6 +765,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_isize(
         PlatformPointerUtil.ptrToPlatformInt64(encodeDartOpaque(
             self, portManager.dartHandlerPort, generalizedFrbRustBinding)),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerTranscriptionSegment(
+          TranscriptionSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as TranscriptionSegmentImpl).frbInternalSseEncode(move: null),
+        serializer);
+  }
+
+  @protected
+  void
+      sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerWhisperSegment(
+          WhisperSegment self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+        (self as WhisperSegmentImpl).frbInternalSseEncode(move: null),
         serializer);
   }
 
@@ -457,15 +825,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_transcription_segment(
-      TranscriptionSegment self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.text, serializer);
-    sse_encode_f_64(self.startTimestamp, serializer);
-    sse_encode_f_64(self.endTimestamp, serializer);
-  }
-
-  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
@@ -499,4 +858,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
   }
+}
+
+@sealed
+class TranscriptionSegmentImpl extends RustOpaque
+    implements TranscriptionSegment {
+  // Not to be used by end users
+  TranscriptionSegmentImpl.frbInternalDcoDecode(List<dynamic> wire)
+      : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  TranscriptionSegmentImpl.frbInternalSseDecode(
+      BigInt ptr, int externalSizeOnNative)
+      : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount: RustLib
+        .instance.api.rust_arc_increment_strong_count_TranscriptionSegment,
+    rustArcDecrementStrongCount: RustLib
+        .instance.api.rust_arc_decrement_strong_count_TranscriptionSegment,
+    rustArcDecrementStrongCountPtr: RustLib
+        .instance.api.rust_arc_decrement_strong_count_TranscriptionSegmentPtr,
+  );
+
+  double get endTimestamp => RustLib.instance.api
+          .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetEndTimestamp(
+        that: this,
+      );
+
+  double get startTimestamp => RustLib.instance.api
+          .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetStartTimestamp(
+        that: this,
+      );
+
+  String get text => RustLib.instance.api
+          .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorGetText(
+        that: this,
+      );
+
+  set endTimestamp(double endTimestamp) => RustLib.instance.api
+      .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetEndTimestamp(
+          that: this, endTimestamp: endTimestamp);
+
+  set startTimestamp(double startTimestamp) => RustLib.instance.api
+      .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetStartTimestamp(
+          that: this, startTimestamp: startTimestamp);
+
+  set text(String text) => RustLib.instance.api
+      .crateTranscribeTranscribeTranscriptionSegmentAutoAccessorSetText(
+          that: this, text: text);
+}
+
+@sealed
+class WhisperSegmentImpl extends RustOpaque implements WhisperSegment {
+  // Not to be used by end users
+  WhisperSegmentImpl.frbInternalDcoDecode(List<dynamic> wire)
+      : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  WhisperSegmentImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+      : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount:
+        RustLib.instance.api.rust_arc_increment_strong_count_WhisperSegment,
+    rustArcDecrementStrongCount:
+        RustLib.instance.api.rust_arc_decrement_strong_count_WhisperSegment,
+    rustArcDecrementStrongCountPtr:
+        RustLib.instance.api.rust_arc_decrement_strong_count_WhisperSegmentPtr,
+  );
 }

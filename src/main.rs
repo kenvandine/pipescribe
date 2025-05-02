@@ -47,7 +47,8 @@ struct Opt {
     language: Option<String>,
 }
 
-pub fn main() -> anyhow::Result<()> {
+#[tokio::main]
+pub async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
@@ -61,6 +62,12 @@ pub fn main() -> anyhow::Result<()> {
         opt.output_dir,
         opt.language,
         target_ids[0],
+        |segment| {
+            Box::pin(async move {
+                let text = segment.text.clone();
+                println!("{}", text);
+            })
+        },
     )?;
     Ok(())
 }

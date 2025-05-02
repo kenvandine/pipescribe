@@ -14,8 +14,7 @@ Future<void> startTranscribing(
         String? target,
         String? outputDir,
         String? language,
-        required FutureOr<void> Function(TranscriptionSegment)
-            segmentCallback}) =>
+        required FutureOr<void> Function(WhisperSegment) segmentCallback}) =>
     RustLib.instance.api.crateTranscribeTranscribeStartTranscribing(
         modelPath: modelPath,
         bufferSeconds: bufferSeconds,
@@ -24,27 +23,20 @@ Future<void> startTranscribing(
         language: language,
         segmentCallback: segmentCallback);
 
-class TranscriptionSegment {
-  final String text;
-  final double startTimestamp;
-  final double endTimestamp;
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<TranscriptionSegment>>
+abstract class TranscriptionSegment implements RustOpaqueInterface {
+  double get endTimestamp;
 
-  const TranscriptionSegment({
-    required this.text,
-    required this.startTimestamp,
-    required this.endTimestamp,
-  });
+  double get startTimestamp;
 
-  @override
-  int get hashCode =>
-      text.hashCode ^ startTimestamp.hashCode ^ endTimestamp.hashCode;
+  String get text;
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TranscriptionSegment &&
-          runtimeType == other.runtimeType &&
-          text == other.text &&
-          startTimestamp == other.startTimestamp &&
-          endTimestamp == other.endTimestamp;
+  set endTimestamp(double endTimestamp);
+
+  set startTimestamp(double startTimestamp);
+
+  set text(String text);
 }
+
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<WhisperSegment>>
+abstract class WhisperSegment implements RustOpaqueInterface {}

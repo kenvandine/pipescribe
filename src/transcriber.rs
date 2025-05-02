@@ -7,8 +7,8 @@ use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
 
-use std::sync::mpsc::{self, Sender};
-use std::{fs, thread};
+use std::fs;
+use tokio::sync::mpsc::{self, UnboundedSender};
 
 use crate::WhisperSegment;
 use crate::audio_utils;
@@ -16,16 +16,22 @@ use crate::{WhisperProcessor, pipewire_utils};
 
 pub struct UserData {
     format: spa::param::audio::AudioInfoRaw,
-    sample_sender: Sender<Vec<f32>>,
+    sample_sender: UnboundedSender<Vec<f32>>,
 }
 
-pub fn transcribe(
+pub fn transcribe<F>(
     model_path: &str,
     buffer_seconds: u32,
     output_dir: Option<PathBuf>,
     language: Option<String>,
-    target_id: u32, // FIXME: Make this handle multiple targets
-) -> Result<(), pw::Error> {
+    target_id: u32,          // FIXME: Make this handle multiple targets
+    mut segment_callback: F, // Make segment_callback mutable
+) -> Result<(), pw::Error>
+where
+    F: FnMut(WhisperSegment) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + 'static,
+{
     pipewire::init();
 
     let mainloop = pw::main_loop::MainLoop::new(None)?;
@@ -39,14 +45,13 @@ pub fn transcribe(
         }
     }
 
-    // Calculate the ring buffer size based on the desired seconds
-    // Assuming 16000Hz is the inference rate for Whisper
+    // 16KHz = inference rate for Whisper
     let inference_rate = 16000;
     let ring_buffer_size = (inference_rate * buffer_seconds) as usize;
 
     // Create channels for audio samples and transcription segments
-    let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
-    let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
+    let (sample_sender, sample_receiver) = mpsc::unbounded_channel::<Vec<f32>>(); // Use unbounded channel
+    let (segment_sender, mut segment_receiver) = mpsc::unbounded_channel::<WhisperSegment>();
 
     let data = UserData {
         format: Default::default(),
@@ -59,8 +64,8 @@ pub fn transcribe(
         *pw::keys::MEDIA_ROLE => "Music",
     };
 
-    thread::spawn(move || {
-        while let Ok(segment) = segment_receiver.recv() {
+    tokio::spawn(async move {
+        while let Some(segment) = segment_receiver.recv().await {
             debug!(
                 "[{} - {} ({})]: {}",
                 segment.start_timestamp,
@@ -68,11 +73,10 @@ pub fn transcribe(
                 segment.first_token_dtw_ts,
                 segment.text
             );
-            println!("{}", segment.text);
+            segment_callback(segment).await; // Await the async callback
         }
     });
 
-    // Create and start the WhisperProcessor with the channel receiver
     let processor = WhisperProcessor::new(
         model_path,
         sample_receiver,

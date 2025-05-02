@@ -5,11 +5,10 @@ use std::{
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc::{Receiver, Sender},
     },
     thread::{self, JoinHandle},
-    time::Duration,
 };
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// Represents a transcription segment from Whisper
@@ -29,11 +28,11 @@ pub struct WhisperProcessor {
 impl WhisperProcessor {
     pub fn new(
         model_path: &str,
-        sample_receiver: Receiver<Vec<f32>>,
+        mut sample_receiver: UnboundedReceiver<Vec<f32>>, // Use tokio's UnboundedReceiver
         buffer_size: usize,
         output_dir: Option<PathBuf>,
         language: Option<String>,
-        segment_sender: Sender<WhisperSegment>,
+        segment_sender: UnboundedSender<WhisperSegment>, // Use tokio's UnboundedSender
     ) -> Self {
         whisper_rs::install_logging_hooks();
 
@@ -86,19 +85,12 @@ impl WhisperProcessor {
             while running_clone.load(Ordering::SeqCst) {
                 // Collect samples until we have enough for processing
                 while buffer_samples.len() < buffer_size {
-                    match sample_receiver.recv_timeout(Duration::from_millis(100)) {
-                        Ok(samples) => {
+                    match sample_receiver.blocking_recv() {
+                        Some(samples) => {
                             // Add the entire chunk of samples to our buffer
                             buffer_samples.extend_from_slice(&samples);
                         }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            // Check if we should continue running
-                            if !running_clone.load(Ordering::SeqCst) {
-                                break;
-                            }
-                            continue;
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        None => {
                             // Channel is closed, exit the thread
                             debug!("Audio sample channel disconnected");
                             return;
@@ -275,11 +267,12 @@ mod tests {
     use crate::audio_utils;
     use env_logger;
     use log::LevelFilter;
-    use std::sync::{Arc, mpsc};
-    use std::time::{Duration, Instant};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::time::timeout;
 
-    #[test]
-    fn test_whisper_processor_with_jfk_speech() {
+    #[tokio::test]
+    async fn test_whisper_processor_with_jfk_speech() {
         let _ = env_logger::builder()
             .filter_level(LevelFilter::Info)
             .is_test(true)
@@ -287,7 +280,8 @@ mod tests {
 
         println!("Starting test_whisper_processor_with_jfk_speech");
 
-        let (sample_sender, sample_receiver) = mpsc::channel::<Vec<f32>>();
+        // Use tokio channels in an async context
+        let (sample_sender, sample_receiver) = tokio::sync::mpsc::unbounded_channel::<Vec<f32>>();
 
         let wav_path = Path::new("fixtures/jfk_berlin_address_high_f32le.wav");
         let reader = hound::WavReader::open(wav_path).expect("Could not open test WAV file");
@@ -314,12 +308,12 @@ mod tests {
 
         let received_segments = Arc::new(Mutex::new(Vec::new()));
         let received_segments_clone = received_segments.clone();
+        let (segment_sender, mut segment_receiver) =
+            tokio::sync::mpsc::unbounded_channel::<WhisperSegment>();
 
-        let (segment_sender, segment_receiver) = mpsc::channel::<WhisperSegment>();
-
-        // Start thread to receive and track segments
-        thread::spawn(move || {
-            while let Ok(segment) = segment_receiver.recv() {
+        // Start a tokio task to handle segments asynchronously
+        let handle = tokio::spawn(async move {
+            while let Some(segment) = segment_receiver.recv().await {
                 println!(
                     "[{} - {}]: {}",
                     segment.start_timestamp, segment.end_timestamp, segment.text
@@ -330,9 +324,9 @@ mod tests {
             }
         });
 
+        // Create processor (this remains synchronous since WhisperProcessor uses threads internally)
         println!("Creating whisper processor");
         let processor = WhisperProcessor::new(
-            // need to have downloaded this with `./bin/download-ggml-models.sh tiny.en && mv ggml-tiny.en.bin models/`
             "models/ggml-tiny.en.bin",
             sample_receiver,
             16000, // Process after 1 second of audio
@@ -343,9 +337,8 @@ mod tests {
 
         let sample_limit = std::cmp::min(samples.len(), 16000 * 15); // 15 seconds of audio
 
-        // Send samples through the channel in chunks instead of individually
+        // Send samples through the channel in chunks
         println!("Sending {} samples to processor", sample_limit);
-
         const CHUNK_SIZE: usize = 64000;
         for chunk_start in (0..sample_limit).step_by(CHUNK_SIZE) {
             let chunk_end = std::cmp::min(chunk_start + CHUNK_SIZE, sample_limit);
@@ -355,32 +348,62 @@ mod tests {
                 println!("Failed to send sample chunk: {}", e);
                 break;
             }
+            // Give the processor some time to work
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
-        let start_time = Instant::now();
-        let max_wait = Duration::from_secs(20); // Longer timeout to allow processing
-
+        // Use a more elegant timeout approach with async/await
         let all_segments_received = |received: &[String]| -> bool {
             expected_segments
                 .iter()
                 .all(|expected| received.iter().any(|received| received.contains(expected)))
         };
 
-        // Wait for all expected segments or timeout
+        let max_wait = Duration::from_secs(20);
         let mut success = false;
-        while start_time.elapsed() < max_wait {
-            {
-                let segments = received_segments.lock().unwrap();
-                if all_segments_received(&segments) {
-                    success = true;
-                    break;
+
+        // Wait for segments with timeout using Tokio's time utilities
+        match timeout(max_wait, async {
+            loop {
+                {
+                    let segments = received_segments.lock().unwrap();
+                    if all_segments_received(&segments) {
+                        return true;
+                    }
                 }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            thread::sleep(Duration::from_millis(100));
+        })
+        .await
+        {
+            Ok(result) => success = result,
+            Err(_) => println!("Timed out waiting for segments"),
         }
 
-        processor.stop();
+        // Close the sample sender to ensure the processor knows it's done
+        drop(sample_sender);
 
+        // Cleanup with timeout to prevent hanging
+        let stop_timeout = timeout(Duration::from_secs(5), async {
+            // We need to move processor.stop() to a blocking task since it performs a thread join
+            // which would block the async runtime
+            let processor_owned = processor;
+            tokio::task::spawn_blocking(move || {
+                processor_owned.stop();
+            })
+            .await
+            .expect("Failed to join processor thread");
+        })
+        .await;
+
+        if stop_timeout.is_err() {
+            println!("WARNING: Timed out waiting for processor to stop");
+        }
+
+        // Abort the segment receiver task
+        handle.abort();
+
+        // Final output and assertions
         let final_segments = received_segments.lock().unwrap();
         println!("Received {} segments total:", final_segments.len());
         for (i, seg) in final_segments.iter().enumerate() {
