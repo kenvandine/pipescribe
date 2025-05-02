@@ -1,0 +1,53 @@
+name: pipescribe
+version: "0.1"
+summary: pipescribe
+description: pipescribe
+grade: stable 
+confinement: strict
+base: core24
+platforms:
+  amd64:
+  arm64:
+    
+apps:
+  cli:
+    extensions: [gnome]
+    command: bin/pipescribe
+    plugs:
+      - audio-record
+      - home
+      - removable-media
+      - opengl
+
+parts:
+  pipescribe:
+    after: [ pipewire ]
+    source: .
+    source-type: git
+    plugin: rust
+    build-packages:
+      - cmake
+      - libclang-dev
+      - libspa-0.2-dev
+
+  pipewire:
+    source: https://gitlab.freedesktop.org/pipewire/pipewire.git
+    source-tag: '1.4.2'
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - --strip
+      - -Dalsa=disabled
+      - -Dpipewire-alsa=disabled
+      - -Djack=disabled
+      - -Dgstreamer=disabled
+      - -Dselinux=disabled
+      - -Dpipewire-jack=disabled
+      - -Dsession-managers=[]
+      - -Dexamples=disabled
+      - -Dman=disabled
+      - -Dtests=disabled
+    prime:
+      - -usr/lib/*/pkgconfig
+      - -usr/include
