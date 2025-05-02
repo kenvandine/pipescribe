@@ -47,8 +47,15 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "pipescribe");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  gtk_window_set_default_size(window, 450, 700);
   gtk_widget_show(GTK_WIDGET(window));
+
+  // Set window icon
+  GdkPixbuf *icon = gdk_pixbuf_new_from_file("./flutter_assets/assets/icon.png", NULL);
+  if (icon != NULL) {
+    gtk_window_set_icon(window, icon);
+    g_object_unref(icon);
+  }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
